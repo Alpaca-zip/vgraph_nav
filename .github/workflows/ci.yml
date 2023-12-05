@@ -1,0 +1,95 @@
+name: ROS1 Industrial CI
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  clang_format_check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v2
+      - name: run industrial_ci
+        uses: 'ros-industrial/industrial_ci@master'
+        env:
+          ROS_DISTRO: noetic # Replace noetic for your chosen distro.
+          CLANG_FORMAT_CHECK: file
+          CLANG_FORMAT_VERSION: "10"
+
+  clang_tidy_check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v2
+      - name: run industrial_ci
+        uses: 'ros-industrial/industrial_ci@master'
+        env:
+          ROS_DISTRO: noetic # Replace noetic for your chosen distro.
+          # UPSTREAM_WORKSPACE: dependencies.rosinstall
+          # BEFORE_BUILD_TARGET_WORKSPACE: 'apt update -q && python3 -m pip install ****'
+          CLANG_TIDY: pedantic
+
+  black_check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v2
+      - name: run industrial_ci
+        uses: 'ros-industrial/industrial_ci@master'
+        env:
+          ROS_DISTRO: noetic # Replace noetic for your chosen distro.
+          BLACK_CHECK: true
+
+  pylint_check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v2
+      - name: run industrial_ci
+        uses: 'ros-industrial/industrial_ci@master'
+        env:
+          ROS_DISTRO: noetic # Replace noetic for your chosen distro.
+          # UPSTREAM_WORKSPACE: dependencies.rosinstall
+          # BEFORE_BUILD_TARGET_WORKSPACE: 'apt update -q && python3 -m pip install ****'
+          PYLINT_ARGS: '--errors-only'
+          PYLINT_CHECK: true
+
+  catkin_lint_check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v2
+      - name: run industrial_ci
+        uses: 'ros-industrial/industrial_ci@master'
+        env:
+          ROS_DISTRO: noetic # Replace noetic for your chosen distro.
+          # UPSTREAM_WORKSPACE: dependencies.rosinstall
+          # BEFORE_BUILD_TARGET_WORKSPACE: 'apt update -q && python3 -m pip install ****'
+          CATKIN_LINT: true
+
+  build_check:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        env:
+          - ROS_DISTRO: noetic # Replace noetic for your chosen distro.
+            ROS_REPO: main
+            # UPSTREAM_WORKSPACE: dependencies.rosinstall
+            # BEFORE_BUILD_TARGET_WORKSPACE: 'apt update -q && python3 -m pip install ****'
+            IMMEDIATE_TEST_OUTPUT: true
+          - ROS_DISTRO: noetic # Replace noetic for your chosen distro.
+            ROS_REPO: testing
+            # UPSTREAM_WORKSPACE: dependencies.rosinstall
+            # BEFORE_BUILD_TARGET_WORKSPACE: 'apt update -q && python3 -m pip install ****'
+            IMMEDIATE_TEST_OUTPUT: true
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@v2
+      - name: run industrial_ci
+        uses: 'ros-industrial/industrial_ci@master'
+        env: ${{matrix.env}}

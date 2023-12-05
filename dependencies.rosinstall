@@ -1,0 +1,4 @@
+#- git:
+#    local-name: PACKAGE_NAME
+#    uri: https://github.com/USERNAME/REPOSITORY_NAME.git
+#    version: BRANCH_NAME
