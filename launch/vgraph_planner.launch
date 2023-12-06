@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<launch>
+  <arg name="pgm_file" default="$(find vgraph_planner)/map/map.pgm"/>
+  <arg name="save_graph_file" default="$(find vgraph_planner)/map/vgraph.png"/>
+  <arg name="resolution" default="0.1"/>
+
+  <node name="vgraph_planner_node" pkg="vgraph_planner" type="vgraph_planner.py" output="screen">
+    <param name="~pgm_file" value="$(arg pgm_file)"/>
+    <param name="~save_graph_file" value="$(arg save_graph_file)"/>
+    <param name="~resolution" value="$(arg resolution)"/>
+  </node>
+</launch>

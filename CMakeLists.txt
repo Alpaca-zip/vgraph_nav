@@ -13,4 +13,4 @@ catkin_package(CATKIN_DEPENDS rospy)
 include_directories(include ${catkin_INCLUDE_DIRS})
 
 # Install Python executables
-install(PROGRAMS scripts/py_template.py DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION})
+install(PROGRAMS scripts/vgraph_planner.py DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION})
