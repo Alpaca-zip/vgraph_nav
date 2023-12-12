@@ -91,6 +91,8 @@ class VgraphPlannerNode:
         return rgb_image
 
     def check_line_crossing(self, image, start, end):
+        start_pixels = self.get_surrounding_pixels(start)
+        end_pixels = self.get_surrounding_pixels(end)
         x0, y0 = start
         x1, y1 = end
         dx = abs(x1 - x0)
@@ -103,7 +105,7 @@ class VgraphPlannerNode:
         not_all_white = False
         is_horizontal_or_vertical = x0 == x1 or y0 == y1
         while True:
-            if (x, y) != start and (x, y) != end:
+            if (x, y) not in start_pixels and (x, y) not in end_pixels:
                 pixel = image.getpixel((x, y))
                 if pixel != 0:
                     not_all_black = True
@@ -136,6 +138,14 @@ class VgraphPlannerNode:
         if not is_horizontal_or_vertical:
             not_all_black = True
         return not_all_black and not_all_white
+    
+    def get_surrounding_pixels(self, point):
+        x, y = point
+        pixels = []
+        for i in range(-1, 2):
+            for j in range(-1, 2):
+                pixels.append((x + i, y + j))
+        return pixels
 
 
 def main():
