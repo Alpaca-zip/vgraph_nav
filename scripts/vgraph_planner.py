@@ -16,6 +16,7 @@
 # limitations under the License.
 
 import rospy
+import mip
 from PIL import Image, ImageDraw
 
 
@@ -29,10 +30,17 @@ class VgraphPlannerNode:
         up_scaled_image = self.change_image_resolution(
             self.pgm_file_path, self.resolution
         )
-        corners = self.find_black_pixel_corners(up_scaled_image)
+        corners = []
         corners.append(self.start_point)
+        corners = self.find_black_pixel_corners(up_scaled_image)
         corners.append(self.end_point)
-        line_marked_image = self.draw_lines_between_corners(up_scaled_image, corners)
+        valid_edges = self.get_valid_edges(up_scaled_image, corners)
+        self.calculate_shortest_path(
+            corners, valid_edges, self.start_point, self.end_point
+        )
+        line_marked_image = self.draw_lines_between_corners(
+            up_scaled_image, valid_edges
+        )
         line_marked_image.save(self.save_graph_file_path)
 
     def __del__(self):
@@ -85,14 +93,14 @@ class VgraphPlannerNode:
                         corners.append((x, y))
         return corners
 
-    def draw_lines_between_corners(self, image, corners):
-        rgb_image = image.convert("RGB")
-        draw = ImageDraw.Draw(rgb_image)
+    def get_valid_edges(self, image, corners):
+        valid_edges = []
         for i in range(len(corners)):
             for j in range(i + 1, len(corners)):
                 if not self.check_line_crossing(image, corners[i], corners[j]):
-                    draw.line([corners[i], corners[j]], fill=(255, 0, 0), width=1)
-        return rgb_image
+                    valid_edges.append((corners[i], corners[j]))
+                    valid_edges.append((corners[j], corners[i]))
+        return valid_edges
 
     def check_line_crossing(self, image, start, end):
         start_pixels = self.get_surrounding_pixels(start)
@@ -150,6 +158,35 @@ class VgraphPlannerNode:
             for j in range(-1, 2):
                 pixels.append((x + i, y + j))
         return pixels
+
+    def calculate_shortest_path(self, corners, valid_edges):
+        model = mip.Model()
+        x = {(i, j): model.add_var(var_type=mip.BINARY) for i, j in valid_edges}
+        start_index = 0
+        end_index = len(corners) - 1
+
+        model += mip.xsum(x[i, j] for i, j in valid_edges if i == start_index) == 1
+        model += mip.xsum(x[i, j] for i, j in valid_edges if j == start_index) == 0
+        model += mip.xsum(x[i, j] for i, j in valid_edges if i == end_index) == 0
+        model += mip.xsum(x[i, j] for i, j in valid_edges if j == end_index) == 1
+        for k in range(1, len(corners) - 1):
+            model += mip.xsum(x[i, k] for i, _ in valid_edges if (i, k) in x) == 1
+            model += mip.xsum(x[k, j] for _, j in valid_edges if (k, j) in x) == 1
+        model.optimize()
+
+        edges = [(i, j) for i, j in valid_edges if x[i, j].x >= 0.99]
+
+        self.find_shortest_path_dijkstra(corners, edges, start_index, end_index)
+
+    def find_shortest_path_dijkstra(self, corners, edges, start_index, end_index):
+        pass  # TODO
+
+    def draw_lines_between_corners(self, image, valid_edges):
+        rgb_image = image.convert("RGB")
+        draw = ImageDraw.Draw(rgb_image)
+        for start, end in valid_edges:
+            draw.line([start, end], fill=(255, 0, 0), width=1)
+        return rgb_image
 
 
 def main():
