@@ -138,7 +138,7 @@ class VgraphPlannerNode:
         if not is_horizontal_or_vertical:
             not_all_black = True
         return not_all_black and not_all_white
-    
+
     def get_surrounding_pixels(self, point):
         x, y = point
         pixels = []
