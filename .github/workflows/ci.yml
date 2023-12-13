@@ -27,7 +27,7 @@ jobs:
         env:
           ROS_DISTRO: noetic # Replace noetic for your chosen distro.
           # UPSTREAM_WORKSPACE: dependencies.rosinstall
-          # BEFORE_BUILD_TARGET_WORKSPACE: 'apt update -q && python3 -m pip install ****'
+          BEFORE_BUILD_TARGET_WORKSPACE: 'apt update -q && python3 -m pip install -q -r requirements.txt'
           PYLINT_ARGS: '--errors-only'
           PYLINT_CHECK: true
 
@@ -41,7 +41,7 @@ jobs:
         env:
           ROS_DISTRO: noetic # Replace noetic for your chosen distro.
           # UPSTREAM_WORKSPACE: dependencies.rosinstall
-          # BEFORE_BUILD_TARGET_WORKSPACE: 'apt update -q && python3 -m pip install ****'
+          BEFORE_BUILD_TARGET_WORKSPACE: 'apt update -q && python3 -m pip install -q -r requirements.txt'
           CATKIN_LINT: true
 
   build_check:
@@ -54,12 +54,12 @@ jobs:
           - ROS_DISTRO: noetic # Replace noetic for your chosen distro.
             ROS_REPO: main
             # UPSTREAM_WORKSPACE: dependencies.rosinstall
-            # BEFORE_BUILD_TARGET_WORKSPACE: 'apt update -q && python3 -m pip install ****'
+            BEFORE_BUILD_TARGET_WORKSPACE: 'apt update -q && python3 -m pip install -q -r requirements.txt'
             IMMEDIATE_TEST_OUTPUT: true
           - ROS_DISTRO: noetic # Replace noetic for your chosen distro.
             ROS_REPO: testing
             # UPSTREAM_WORKSPACE: dependencies.rosinstall
-            # BEFORE_BUILD_TARGET_WORKSPACE: 'apt update -q && python3 -m pip install ****'
+            BEFORE_BUILD_TARGET_WORKSPACE: 'apt update -q && python3 -m pip install -q -r requirements.txt'
             IMMEDIATE_TEST_OUTPUT: true
 
     steps:
