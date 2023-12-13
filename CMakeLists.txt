@@ -9,8 +9,5 @@ find_package(catkin REQUIRED COMPONENTS rospy)
 # Declare a catkin package
 catkin_package(CATKIN_DEPENDS rospy)
 
-# Specify additional locations of header files
-include_directories(include ${catkin_INCLUDE_DIRS})
-
 # Install Python executables
 install(PROGRAMS scripts/vgraph_planner.py DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION})
