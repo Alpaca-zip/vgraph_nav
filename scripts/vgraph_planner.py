@@ -43,11 +43,11 @@ class VgraphPlannerNode:
         width = int(original_image.width * resolution)
         height = int(original_image.height * resolution)
         black_pixels = self.find_black_pixels(original_image)
-        down_scaled_image = original_image.resize((width, height), Image.NEAREST)
+        down_scaled_image = original_image.resize((width, height), Image.Resampling.NEAREST)
         down_scaled_image = self.apply_black_pixels(
             down_scaled_image, black_pixels, resolution
         )
-        up_scaled_image = down_scaled_image.resize(original_image.size, Image.NEAREST)
+        up_scaled_image = down_scaled_image.resize(original_image.size, Image.Resampling.NEAREST)
         return up_scaled_image
 
     def find_black_pixels(self, image):
