@@ -1,1 +1,1 @@
-Pillow == 10.1.0
+Pillow
