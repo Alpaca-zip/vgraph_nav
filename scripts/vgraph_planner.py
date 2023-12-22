@@ -29,6 +29,7 @@ class VgraphPlannerNode:
         self.test_folder_path = rospy.get_param("~test_folder", "test")
         self.down_scale_factor = rospy.get_param("~down_scale_factor", 0.2)
         self.clearance = rospy.get_param("~clearance", 0.3)
+        self.use_origin = rospy.get_param("~use_origin", True)
         self.start_point = rospy.get_param("~start_point", (200, 30))
         self.end_point = rospy.get_param("~end_point", (150, 370))
 
@@ -36,18 +37,35 @@ class VgraphPlannerNode:
             self.map_file_path
         )
 
+        if self.use_origin:
+            self.start_point = self.origin_to_pixel(self.origin, self.original_image)
+
+        self.make_plan(self.original_image, self.start_point, self.end_point)
+
+    def __del__(self):
+        pass
+
+    def origin_to_pixel(self, origin, image):
+        pixel_x = int(round(abs(origin[0]) / self.resolution))
+        pixel_y = int(round(image.height - (abs(origin[1]) / self.resolution)))
+
+        return (pixel_x, pixel_y)
+
+    def make_plan(self, image, start, goal):
         (
             enlarged_image,
             down_scaled_image,
             up_scaled_image,
-        ) = self.change_image_resolution(self.original_image, self.down_scale_factor)
+        ) = self.change_image_resolution(image, self.down_scale_factor)
 
         corners = []
-        corners.append(self.start_point)
+        corners.append(start)
         self.find_black_pixel_corners(up_scaled_image, corners)
-        corners.append(self.end_point)
+        corners.append(goal)
+
         valid_edges = self.get_valid_edges(up_scaled_image, corners)
         shortest_path_edges = self.calculate_shortest_path(corners, valid_edges)
+
         path_graph_image = self.draw_lines_between_corners(
             up_scaled_image, corners, valid_edges
         )
@@ -55,10 +73,10 @@ class VgraphPlannerNode:
             up_scaled_image, corners, shortest_path_edges
         )
         optimized_path_image_original = self.draw_lines_between_corners(
-            self.original_image, corners, shortest_path_edges
+            image, corners, shortest_path_edges
         )
 
-        self.original_image.save(self.test_folder_path + "/original.png")
+        image.save(self.test_folder_path + "/original.png")
         enlarged_image.save(self.test_folder_path + "/enlarged.png")
         down_scaled_image.save(self.test_folder_path + "/down_scaled.png")
         up_scaled_image.save(self.test_folder_path + "/up_scaled.png")
@@ -69,9 +87,6 @@ class VgraphPlannerNode:
         optimized_path_image_original.save(
             self.test_folder_path + "/optimized_path_original.png"
         )
-
-    def __del__(self):
-        pass
 
     def load_map_file(self, yaml_file_path):
         with open(yaml_file_path, "r") as file:
@@ -88,30 +103,38 @@ class VgraphPlannerNode:
         image = Image.open(image_path)
         resolution = map_yaml.get("resolution", None)
         origin = map_yaml.get("origin", None)
+
         return image, resolution, origin
 
     def change_image_resolution(self, image, factor):
         width = int(image.width * factor)
         height = int(image.height * factor)
         black_pixels = self.find_black_pixels(image)
+
         enlarged_image, black_pixels = self.enlarge_black_pixels(
             image, black_pixels, self.clearance
         )
+
         down_scaled_image = enlarged_image.resize(
             (width, height), Image.Resampling.NEAREST
         )
+
         down_scaled_image = self.apply_black_pixels(
             down_scaled_image, black_pixels, factor
         )
+
         up_scaled_image = down_scaled_image.resize(image.size, Image.Resampling.NEAREST)
+
         return enlarged_image, down_scaled_image, up_scaled_image
 
     def find_black_pixels(self, image):
         black_pixels = []
+
         for y in range(image.height):
             for x in range(image.width):
                 if image.getpixel((x, y)) == 0:
                     black_pixels.append((x, y))
+
         return black_pixels
 
     def enlarge_black_pixels(self, image, black_pixels, width):
@@ -139,6 +162,7 @@ class VgraphPlannerNode:
             scaled_y = int(y * scale)
             if 0 <= scaled_x < image.width and 0 <= scaled_y < image.height:
                 image.putpixel((scaled_x, scaled_y), 0)
+
         return image
 
     def find_black_pixel_corners(self, image, corners):
@@ -156,11 +180,13 @@ class VgraphPlannerNode:
 
     def get_valid_edges(self, image, corners):
         valid_edges = []
+
         for i in range(len(corners)):
             for j in range(i + 1, len(corners)):
                 if not self.check_line_crossing(image, corners[i], corners[j]):
                     valid_edges.append((corners[i], corners[j]))
                     valid_edges.append((corners[j], corners[i]))
+
         return valid_edges
 
     def check_line_crossing(self, image, start, end):
@@ -177,19 +203,23 @@ class VgraphPlannerNode:
         not_all_black = False
         not_all_white = False
         is_horizontal_or_vertical = x0 == x1 or y0 == y1
+
         while True:
             if (x, y) not in start_pixels and (x, y) not in end_pixels:
                 pixel = image.getpixel((x, y))
+
                 if pixel != 0:
                     not_all_black = True
                 if pixel != 254:
                     not_all_white = True
+
                 if is_horizontal_or_vertical:
                     if x0 == x1:
                         left_pixel = image.getpixel((x - 1, y)) if x > 0 else 0
                         right_pixel = (
                             image.getpixel((x + 1, y)) if x < image.width - 1 else 0
                         )
+
                         if left_pixel != 254 and right_pixel != 254:
                             not_all_black = True
                     else:
@@ -197,33 +227,40 @@ class VgraphPlannerNode:
                         bottom_pixel = (
                             image.getpixel((x, y + 1)) if y < image.height - 1 else 0
                         )
+
                         if top_pixel != 254 and bottom_pixel != 254:
                             not_all_black = True
+
             if x == x1 and y == y1:
                 break
+
             e2 = 2 * err
+
             if e2 > -dy:
                 err -= dy
                 x += sx
             if e2 < dx:
                 err += dx
                 y += sy
+
         if not is_horizontal_or_vertical:
             not_all_black = True
+
         return not_all_black and not_all_white
 
     def get_surrounding_pixels(self, point):
         x, y = point
         pixels = []
+
         for i in range(-1, 2):
             for j in range(-1, 2):
                 pixels.append((x + i, y + j))
+
         return pixels
 
     def calculate_shortest_path(self, corners, valid_edges):
         model = mip.Model()
         x = {(i, j): model.add_var(var_type=mip.BINARY) for i, j in valid_edges}
-
         start_point = corners[0]
         end_point = corners[-1]
 
@@ -245,25 +282,26 @@ class VgraphPlannerNode:
 
         if model.status == mip.OptimizationStatus.OPTIMAL:
             shortest_path_edges = [(i, j) for i, j in valid_edges if x[i, j].x >= 0.99]
+
             return shortest_path_edges
         else:
             rospy.logerr("Optimization failed. No path found.")
+
             return None
 
     def euclidean_distance(self, point1, point2):
         return math.sqrt((point1[0] - point2[0]) ** 2 + (point1[1] - point2[1]) ** 2)
 
-    def draw_lines_between_corners(self, image, corners, valid_edges):
+    def draw_lines_between_corners(self, image, corners, edges):
         rgb_image = image.convert("RGB")
         draw = ImageDraw.Draw(rgb_image)
-
         start_point = corners[0]
         end_point = corners[-1]
+        radius = 5
 
-        for start, end in valid_edges:
+        for start, end in edges:
             draw.line([start, end], fill=(255, 0, 0), width=1)
 
-        radius = 5
         draw.ellipse(
             (
                 start_point[0] - radius,
@@ -282,6 +320,7 @@ class VgraphPlannerNode:
             ),
             fill=(0, 0, 255),
         )
+
         return rgb_image
 
 
