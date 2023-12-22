@@ -1,14 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <launch>
-  <arg name="pgm_file" default="$(find vgraph_planner)/map/map.pgm"/>
-  <arg name="save_graph_file" default="$(find vgraph_planner)/map/vgraph.png"/>
-  <arg name="save_optimized_graph_file" default="$(find vgraph_planner)/map/vgraph_optimized.png"/>
-  <arg name="resolution" default="0.1"/>
+  <arg name="map_file" default="$(find vgraph_planner)/map/map.yaml"/>
+  <arg name="test_folder" default="$(find vgraph_planner)/test"/>
+  <arg name="down_scale_factor" default="0.2"/>
+  <arg name="clearance" default="0.3"/>
 
   <node name="vgraph_planner_node" pkg="vgraph_planner" type="vgraph_planner.py" output="screen">
-    <param name="~pgm_file" value="$(arg pgm_file)"/>
-    <param name="~save_graph_file" value="$(arg save_graph_file)"/>
-    <param name="~save_optimized_graph_file" value="$(arg save_optimized_graph_file)"/>
-    <param name="~resolution" value="$(arg resolution)"/>
+    <param name="~map_file" value="$(arg map_file)"/>
+    <param name="~test_folder" value="$(arg test_folder)"/>
+    <param name="~down_scale_factor" value="$(arg down_scale_factor)"/>
+    <param name="~clearance" value="$(arg clearance)"/>
   </node>
 </launch>

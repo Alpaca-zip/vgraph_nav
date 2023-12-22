@@ -16,57 +16,95 @@
 # limitations under the License.
 
 import rospy
+import yaml
 import mip
 import math
+import os
 from PIL import Image, ImageDraw
 
 
 class VgraphPlannerNode:
     def __init__(self):
-        self.pgm_file_path = rospy.get_param("~pgm_file", "map.pgm")
-        self.save_graph_file_path = rospy.get_param("~save_graph_file", "vgraph.png")
-        self.save_optimized_graph_file_path = rospy.get_param(
-            "~save_optimized_graph_file", "vgraph_opt.png"
-        )
-        self.resolution = rospy.get_param("~resolution", 0.1)
+        self.map_file_path = rospy.get_param("~map_file", "map.yaml")
+        self.test_folder_path = rospy.get_param("~test_folder", "test")
+        self.down_scale_factor = rospy.get_param("~down_scale_factor", 0.2)
+        self.clearance = rospy.get_param("~clearance", 0.3)
         self.start_point = rospy.get_param("~start_point", (200, 30))
         self.end_point = rospy.get_param("~end_point", (150, 370))
-        up_scaled_image = self.change_image_resolution(
-            self.pgm_file_path, self.resolution
+
+        self.original_image, self.resolution, self.origin = self.load_map_file(
+            self.map_file_path
         )
+
+        (
+            enlarged_image,
+            down_scaled_image,
+            up_scaled_image,
+        ) = self.change_image_resolution(self.original_image, self.down_scale_factor)
+
         corners = []
         corners.append(self.start_point)
         self.find_black_pixel_corners(up_scaled_image, corners)
         corners.append(self.end_point)
         valid_edges = self.get_valid_edges(up_scaled_image, corners)
         shortest_path_edges = self.calculate_shortest_path(corners, valid_edges)
-        graph_image = self.draw_lines_between_corners(
+        path_graph_image = self.draw_lines_between_corners(
             up_scaled_image, corners, valid_edges
         )
-        optimized_graph_image = self.draw_lines_between_corners(
+        optimized_path_image_upscaled = self.draw_lines_between_corners(
             up_scaled_image, corners, shortest_path_edges
         )
-        graph_image.save(self.save_graph_file_path)
-        optimized_graph_image.save(self.save_optimized_graph_file_path)
+        optimized_path_image_original = self.draw_lines_between_corners(
+            self.original_image, corners, shortest_path_edges
+        )
+
+        self.original_image.save(self.test_folder_path + "/original.png")
+        enlarged_image.save(self.test_folder_path + "/enlarged.png")
+        down_scaled_image.save(self.test_folder_path + "/down_scaled.png")
+        up_scaled_image.save(self.test_folder_path + "/up_scaled.png")
+        path_graph_image.save(self.test_folder_path + "/path_graph.png")
+        optimized_path_image_upscaled.save(
+            self.test_folder_path + "/optimized_path_upscaled.png"
+        )
+        optimized_path_image_original.save(
+            self.test_folder_path + "/optimized_path_original.png"
+        )
 
     def __del__(self):
         pass
 
-    def change_image_resolution(self, image, resolution):
-        original_image = Image.open(image)
-        width = int(original_image.width * resolution)
-        height = int(original_image.height * resolution)
-        black_pixels = self.find_black_pixels(original_image)
-        down_scaled_image = original_image.resize(
+    def load_map_file(self, yaml_file_path):
+        with open(yaml_file_path, "r") as file:
+            map_yaml = yaml.safe_load(file)
+
+        directory = os.path.dirname(yaml_file_path)
+        image_file_name = map_yaml.get("image", None)
+
+        if image_file_name is not None:
+            image_path = os.path.join(directory, image_file_name)
+        else:
+            image_path = None
+
+        image = Image.open(image_path)
+        resolution = map_yaml.get("resolution", None)
+        origin = map_yaml.get("origin", None)
+        return image, resolution, origin
+
+    def change_image_resolution(self, image, factor):
+        width = int(image.width * factor)
+        height = int(image.height * factor)
+        black_pixels = self.find_black_pixels(image)
+        enlarged_image, black_pixels = self.enlarge_black_pixels(
+            image, black_pixels, self.clearance
+        )
+        down_scaled_image = enlarged_image.resize(
             (width, height), Image.Resampling.NEAREST
         )
         down_scaled_image = self.apply_black_pixels(
-            down_scaled_image, black_pixels, resolution
+            down_scaled_image, black_pixels, factor
         )
-        up_scaled_image = down_scaled_image.resize(
-            original_image.size, Image.Resampling.NEAREST
-        )
-        return up_scaled_image
+        up_scaled_image = down_scaled_image.resize(image.size, Image.Resampling.NEAREST)
+        return enlarged_image, down_scaled_image, up_scaled_image
 
     def find_black_pixels(self, image):
         black_pixels = []
@@ -75,6 +113,25 @@ class VgraphPlannerNode:
                 if image.getpixel((x, y)) == 0:
                     black_pixels.append((x, y))
         return black_pixels
+
+    def enlarge_black_pixels(self, image, black_pixels, width):
+        new_image = image.copy()
+        pixel_width = round(width / self.resolution)
+        new_black_pixels = set(black_pixels)
+
+        for x, y in black_pixels:
+            for dx in range(-pixel_width, pixel_width + 1):
+                for dy in range(-pixel_width, pixel_width + 1):
+                    selected_x, selected_y = x + dx, y + dy
+                    if (
+                        0 <= selected_x < new_image.width
+                        and 0 <= selected_y < new_image.height
+                    ):
+                        if (selected_x, selected_y) not in new_black_pixels:
+                            new_image.putpixel((selected_x, selected_y), 0)
+                            new_black_pixels.add((selected_x, selected_y))
+
+        return new_image, new_black_pixels
 
     def apply_black_pixels(self, image, black_pixels, scale):
         for x, y in black_pixels:
