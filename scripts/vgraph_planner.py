@@ -53,19 +53,30 @@ class VgraphPlannerNode:
         return (pixel_x, pixel_y)
 
     def make_plan(self, image, start, goal):
+        rospy.loginfo("\033[92m[Make Plan] Process started.\033[0m")
+        rospy.loginfo(
+            f"\033[92m[Make Plan] Received start: {start}, goal: {goal}.\033[0m"
+        )
+
         (
             enlarged_image,
             down_scaled_image,
             up_scaled_image,
         ) = self.change_image_resolution(image, self.down_scale_factor)
 
+        rospy.loginfo("\033[92m[Make Plan] Image resolution changed.\033[0m")
+
         corners = []
         corners.append(start)
         self.find_black_pixel_corners(up_scaled_image, corners)
+        rospy.loginfo("\033[92m[Make Plan] Black pixel corners found.\033[0m")
         corners.append(goal)
 
         valid_edges = self.get_valid_edges(up_scaled_image, corners)
+        rospy.loginfo("\033[92m[Make Plan] Valid edges found.\033[0m")
+
         shortest_path_edges = self.calculate_shortest_path(corners, valid_edges)
+        rospy.loginfo("\033[92m[Make Plan] Shortest path calculated.\033[0m")
 
         path_graph_image = self.draw_lines_between_corners(
             up_scaled_image, corners, valid_edges
@@ -76,6 +87,7 @@ class VgraphPlannerNode:
         optimized_path_image_original = self.draw_lines_between_corners(
             image, corners, shortest_path_edges
         )
+        rospy.loginfo("\033[92m[Make Plan] Images drawn.\033[0m")
 
         image.save(self.test_folder_path + "/original.png")
         enlarged_image.save(self.test_folder_path + "/enlarged.png")
@@ -88,6 +100,8 @@ class VgraphPlannerNode:
         optimized_path_image_original.save(
             self.test_folder_path + "/optimized_path_original.png"
         )
+        rospy.loginfo(f"\033[92m[Make Plan] Images saved to test folder: {self.test_folder_path}.\033[0m")
+        rospy.loginfo("\033[92m[Make Plan] Process completed.\033[0m")
 
     def load_map_file(self, yaml_file_path):
         with open(yaml_file_path, "r") as file:
