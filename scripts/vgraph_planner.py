@@ -100,7 +100,9 @@ class VgraphPlannerNode:
         optimized_path_image_original.save(
             self.test_folder_path + "/optimized_path_original.png"
         )
-        rospy.loginfo(f"\033[92m[Make Plan] Images saved to test folder: {self.test_folder_path}.\033[0m")
+        rospy.loginfo(
+            f"\033[92m[Make Plan] Images saved to test folder: {self.test_folder_path}.\033[0m"
+        )
         rospy.loginfo("\033[92m[Make Plan] Process completed.\033[0m")
 
     def load_map_file(self, yaml_file_path):
