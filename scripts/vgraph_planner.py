@@ -15,11 +15,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import rospy
-import yaml
-import mip
 import math
 import os
+
+import mip
+import rospy
+import yaml
 from PIL import Image, ImageDraw
 
 
