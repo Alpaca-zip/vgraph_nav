@@ -28,11 +28,11 @@ class VgraphPlannerNode:
     def __init__(self):
         self.map_file_path = rospy.get_param("~map_file", "map.yaml")
         self.test_folder_path = rospy.get_param("~test_folder", "test")
-        self.down_scale_factor = rospy.get_param("~down_scale_factor", 0.2)
-        self.clearance = rospy.get_param("~clearance", 0.3)
+        self.down_scale_factor = rospy.get_param("~down_scale_factor", 0.3)
+        self.clearance = rospy.get_param("~clearance", 0.2)
         self.use_origin = rospy.get_param("~use_origin", True)
-        self.start_point = rospy.get_param("~start_point", (200, 30))
-        self.end_point = rospy.get_param("~end_point", (150, 370))
+        self.start_point = rospy.get_param("~start_point", (192, 192))
+        self.end_point = rospy.get_param("~end_point", (200, 140))
 
         self.original_image, self.resolution, self.origin = self.load_map_file(
             self.map_file_path
