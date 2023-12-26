@@ -21,6 +21,8 @@ import os
 import mip
 import rospy
 import yaml
+from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseWithCovarianceStamped
 from PIL import Image, ImageDraw
 
 
@@ -28,35 +30,55 @@ class VgraphPlannerNode:
     def __init__(self):
         self.map_file_path = rospy.get_param("~map_file", "map.yaml")
         self.test_folder_path = rospy.get_param("~test_folder", "test")
-        self.down_scale_factor = rospy.get_param("~down_scale_factor", 0.3)
-        self.clearance = rospy.get_param("~clearance", 0.2)
+        self.down_scale_factor = rospy.get_param("~down_scale_factor", 0.1)
+        self.clearance = rospy.get_param("~clearance", 0.1)
         self.use_origin = rospy.get_param("~use_origin", True)
-        self.start_point = rospy.get_param("~start_point", (192, 192))
-        self.end_point = rospy.get_param("~end_point", (200, 140))
+        self.start_point = None
+        self.end_point = None
 
         self.original_image, self.resolution, self.origin = self.load_map_file(
             self.map_file_path
         )
 
-        if self.use_origin:
-            self.start_point = self.origin_to_pixel(self.origin, self.original_image)
-
-        self.make_plan(self.original_image, self.start_point, self.end_point)
+        rospy.Subscriber(
+            "/initialpose", PoseWithCovarianceStamped, self.initial_pose_callback
+        )
+        rospy.Subscriber("/move_base_simple/goal", PoseStamped, self.goal_callback)
 
     def __del__(self):
         pass
 
-    def origin_to_pixel(self, origin, image):
-        pixel_x = int(round(abs(origin[0]) / self.resolution))
-        pixel_y = int(round(image.height - (abs(origin[1]) / self.resolution)))
+    def initial_pose_callback(self, msg):
+        self.start_point = self.pose_to_pixel(
+            (msg.pose.pose.position.x, msg.pose.pose.position.y)
+        )
+        print("\033[92m[Initial Pose] Set initial pose.\033[0m")
+
+    def goal_callback(self, msg):
+        if self.start_point is None:
+            rospy.logwarn("Initial pose is not set. Please set initial pose first.")
+            return
+
+        self.end_point = self.pose_to_pixel((msg.pose.position.x, msg.pose.position.y))
+        print("\033[92m[Goal] Set goal.\033[0m")
+
+        self.make_plan(self.original_image, self.start_point, self.end_point)
+        self.start_point = None
+        self.end_point = None
+
+    def pose_to_pixel(self, pose):
+        origin_x = self.origin[0]
+        origin_y = self.origin[1]
+        pixel_x = int(round((pose[0] - origin_x) / self.resolution))
+        pixel_y = self.original_image.height - int(
+            round((pose[1] - origin_y) / self.resolution)
+        )
 
         return (pixel_x, pixel_y)
 
     def make_plan(self, image, start, goal):
-        rospy.loginfo("\033[92m[Make Plan] Process started.\033[0m")
-        rospy.loginfo(
-            f"\033[92m[Make Plan] Received start: {start}, goal: {goal}.\033[0m"
-        )
+        print("\033[92m[Make Plan] Process started.\033[0m")
+        print(f"\033[92m[Make Plan] Received start: {start}, goal: {goal}.\033[0m")
 
         (
             enlarged_image,
@@ -64,19 +86,19 @@ class VgraphPlannerNode:
             up_scaled_image,
         ) = self.change_image_resolution(image, self.down_scale_factor)
 
-        rospy.loginfo("\033[92m[Make Plan] Image resolution changed.\033[0m")
+        print("\033[92m[Make Plan] Image resolution changed.\033[0m")
 
         corners = []
         corners.append(start)
         self.find_black_pixel_corners(up_scaled_image, corners)
-        rospy.loginfo("\033[92m[Make Plan] Black pixel corners found.\033[0m")
+        print("\033[92m[Make Plan] Black pixel corners found.\033[0m")
         corners.append(goal)
 
         valid_edges = self.get_valid_edges(up_scaled_image, corners)
-        rospy.loginfo("\033[92m[Make Plan] Valid edges found.\033[0m")
+        print("\033[92m[Make Plan] Valid edges found.\033[0m")
 
         shortest_path_edges = self.calculate_shortest_path(corners, valid_edges)
-        rospy.loginfo("\033[92m[Make Plan] Shortest path calculated.\033[0m")
+        print("\033[92m[Make Plan] Shortest path calculated.\033[0m")
 
         path_graph_image = self.draw_lines_between_corners(
             up_scaled_image, corners, valid_edges
@@ -87,7 +109,7 @@ class VgraphPlannerNode:
         optimized_path_image_original = self.draw_lines_between_corners(
             image, corners, shortest_path_edges
         )
-        rospy.loginfo("\033[92m[Make Plan] Images drawn.\033[0m")
+        print("\033[92m[Make Plan] Images drawn.\033[0m")
 
         image.save(self.test_folder_path + "/original.png")
         enlarged_image.save(self.test_folder_path + "/enlarged.png")
@@ -100,10 +122,10 @@ class VgraphPlannerNode:
         optimized_path_image_original.save(
             self.test_folder_path + "/optimized_path_original.png"
         )
-        rospy.loginfo(
+        print(
             f"\033[92m[Make Plan] Images saved to test folder: {self.test_folder_path}.\033[0m"
         )
-        rospy.loginfo("\033[92m[Make Plan] Process completed.\033[0m")
+        print("\033[92m[Make Plan] Process completed.\033[0m")
 
     def load_map_file(self, yaml_file_path):
         with open(yaml_file_path, "r") as file:
@@ -344,6 +366,7 @@ class VgraphPlannerNode:
 def main():
     rospy.init_node("vgraph_planner_node")
     VgraphPlannerNode()
+    rospy.spin()
 
 
 if __name__ == "__main__":
