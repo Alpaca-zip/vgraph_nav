@@ -52,7 +52,7 @@ class VgraphPlannerNode:
         self.start_point = self.pose_to_pixel(
             (msg.pose.pose.position.x, msg.pose.pose.position.y)
         )
-        print("\033[92m[Initial Pose] Set initial pose.\033[0m")
+        rospy.loginfo("Set initial pose.")
 
     def goal_callback(self, msg):
         if self.start_point is None:
@@ -60,7 +60,7 @@ class VgraphPlannerNode:
             return
 
         self.end_point = self.pose_to_pixel((msg.pose.position.x, msg.pose.position.y))
-        print("\033[92m[Goal] Set goal.\033[0m")
+        rospy.loginfo("Set goal.")
 
         self.make_plan(self.original_image, self.start_point, self.end_point)
         self.start_point = None
@@ -78,7 +78,6 @@ class VgraphPlannerNode:
 
     def make_plan(self, image, start, goal):
         print("\033[92m[Make Plan] Process started.\033[0m")
-        print(f"\033[92m[Make Plan] Received start: {start}, goal: {goal}.\033[0m")
 
         (
             enlarged_image,
@@ -91,41 +90,38 @@ class VgraphPlannerNode:
         corners = []
         corners.append(start)
         self.find_black_pixel_corners(up_scaled_image, corners)
-        print("\033[92m[Make Plan] Black pixel corners found.\033[0m")
         corners.append(goal)
 
         valid_edges = self.get_valid_edges(up_scaled_image, corners)
-        print("\033[92m[Make Plan] Valid edges found.\033[0m")
 
         shortest_path_edges = self.calculate_shortest_path(corners, valid_edges)
-        print("\033[92m[Make Plan] Shortest path calculated.\033[0m")
 
-        path_graph_image = self.draw_lines_between_corners(
-            up_scaled_image, corners, valid_edges
-        )
-        optimized_path_image_upscaled = self.draw_lines_between_corners(
-            up_scaled_image, corners, shortest_path_edges
-        )
-        optimized_path_image_original = self.draw_lines_between_corners(
-            image, corners, shortest_path_edges
-        )
-        print("\033[92m[Make Plan] Images drawn.\033[0m")
+        if shortest_path_edges is not None:
+            path_graph_image = self.draw_lines_between_corners(
+                up_scaled_image, corners, valid_edges
+            )
+            optimized_path_image_upscaled = self.draw_lines_between_corners(
+                up_scaled_image, corners, shortest_path_edges
+            )
+            optimized_path_image_original = self.draw_lines_between_corners(
+                image, corners, shortest_path_edges
+            )
 
-        image.save(self.test_folder_path + "/original.png")
-        enlarged_image.save(self.test_folder_path + "/enlarged.png")
-        down_scaled_image.save(self.test_folder_path + "/down_scaled.png")
-        up_scaled_image.save(self.test_folder_path + "/up_scaled.png")
-        path_graph_image.save(self.test_folder_path + "/path_graph.png")
-        optimized_path_image_upscaled.save(
-            self.test_folder_path + "/optimized_path_upscaled.png"
-        )
-        optimized_path_image_original.save(
-            self.test_folder_path + "/optimized_path_original.png"
-        )
-        print(
-            f"\033[92m[Make Plan] Images saved to test folder: {self.test_folder_path}.\033[0m"
-        )
-        print("\033[92m[Make Plan] Process completed.\033[0m")
+            image.save(self.test_folder_path + "/original.png")
+            enlarged_image.save(self.test_folder_path + "/enlarged.png")
+            down_scaled_image.save(self.test_folder_path + "/down_scaled.png")
+            up_scaled_image.save(self.test_folder_path + "/up_scaled.png")
+            path_graph_image.save(self.test_folder_path + "/path_graph.png")
+            optimized_path_image_upscaled.save(
+                self.test_folder_path + "/optimized_path_upscaled.png"
+            )
+            optimized_path_image_original.save(
+                self.test_folder_path + "/optimized_path_original.png"
+            )
+            print(
+                f"\033[92m[Make Plan] Images saved to test folder: {self.test_folder_path}.\033[0m"
+            )
+            print("\033[92m[Make Plan] Process completed successfully.\033[0m")
 
     def load_map_file(self, yaml_file_path):
         with open(yaml_file_path, "r") as file:
@@ -322,10 +318,15 @@ class VgraphPlannerNode:
         if model.status == mip.OptimizationStatus.OPTIMAL:
             shortest_path_edges = [(i, j) for i, j in valid_edges if x[i, j].x >= 0.99]
 
+            if not shortest_path_edges:
+                rospy.logerr("Optimization succeeded, but no valid path was found.")
+                return None
+
+            print("\033[92m[Make Plan] Shortest path calculated.\033[0m")
+
             return shortest_path_edges
         else:
             rospy.logerr("Optimization failed. No path found.")
-
             return None
 
     def euclidean_distance(self, point1, point2):
