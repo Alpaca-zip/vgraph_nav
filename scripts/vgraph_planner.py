@@ -107,18 +107,16 @@ class VgraphPlannerNode:
         shortest_path_edges = self.calculate_shortest_path(corners, valid_edges)
 
         if shortest_path_edges is not None:
-            shortest_path_edges = self.sequence_path(shortest_path_edges, start)
+            shortest_path_edges = self.aligne_path(shortest_path_edges, start)
 
             self.publish_path(shortest_path_edges)
 
-            path_graph_image = self.draw_lines_between_corners(
-                up_scaled_image, corners, valid_edges
+            path_graph_image = self.draw_path_with_markers(up_scaled_image, valid_edges)
+            optimized_path_image_upscaled = self.draw_path_with_markers(
+                up_scaled_image, shortest_path_edges
             )
-            optimized_path_image_upscaled = self.draw_lines_between_corners(
-                up_scaled_image, corners, shortest_path_edges
-            )
-            optimized_path_image_original = self.draw_lines_between_corners(
-                image, corners, shortest_path_edges
+            optimized_path_image_original = self.draw_path_with_markers(
+                image, shortest_path_edges
             )
 
             image.save(self.test_folder_path + "/original.png")
@@ -342,8 +340,8 @@ class VgraphPlannerNode:
         else:
             rospy.logerr("Optimization failed. No path found.")
             return None
-    
-    def sequence_path(self, edges, start):
+
+    def aligne_path(self, edges, start):
         aligned_edges = []
         edge_map = {e[0]: e[1] for e in edges}
         current_point = start
@@ -358,12 +356,12 @@ class VgraphPlannerNode:
     def euclidean_distance(self, point1, point2):
         return math.sqrt((point1[0] - point2[0]) ** 2 + (point1[1] - point2[1]) ** 2)
 
-    def publish_path(self, edges):
+    def publish_path(self, aligned_edges):
         path_msg = Path()
         path_msg.header.frame_id = "map"
         path_msg.header.stamp = rospy.Time.now()
 
-        start_edge = edges[0]
+        start_edge = aligned_edges[0]
         start_pose = self.pixel_to_pose((start_edge[0][0], start_edge[0][1]))
 
         start_pose_stamped = PoseStamped()
@@ -373,7 +371,7 @@ class VgraphPlannerNode:
         start_pose_stamped.pose.orientation.w = 1.0
         path_msg.poses.append(start_pose_stamped)
 
-        for edge in edges:
+        for edge in aligned_edges:
             end_pose = self.pixel_to_pose((edge[1][0], edge[1][1]))
 
             end_pose_stamped = PoseStamped()
@@ -385,16 +383,16 @@ class VgraphPlannerNode:
 
         self.path_pub.publish(path_msg)
 
-    def draw_lines_between_corners(self, image, corners, edges):
+    def draw_path_with_markers(self, image, aligned_edges):
         rgb_image = image.convert("RGB")
         draw = ImageDraw.Draw(rgb_image)
-        start_point = corners[0]
-        end_point = corners[-1]
-        radius = 5
 
-        for start, end in edges:
+        for start, end in aligned_edges:
             draw.line([start, end], fill=(255, 0, 0), width=1)
 
+        start_point = aligned_edges[0][0]
+        end_point = aligned_edges[-1][1]
+        radius = 5
         draw.ellipse(
             (
                 start_point[0] - radius,
