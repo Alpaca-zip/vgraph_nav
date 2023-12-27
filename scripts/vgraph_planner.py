@@ -60,6 +60,126 @@ class VgraphPlannerNode:
     def __del__(self):
         pass
 
+    def load_map_file(self, yaml_file_path):
+        with open(yaml_file_path, "r") as file:
+            map_yaml = yaml.safe_load(file)
+
+        directory = os.path.dirname(yaml_file_path)
+        image_file_name = map_yaml.get("image", None)
+
+        if image_file_name is not None:
+            image_path = os.path.join(directory, image_file_name)
+        else:
+            image_path = None
+
+        image = Image.open(image_path)
+        resolution = map_yaml.get("resolution", None)
+        origin = map_yaml.get("origin", None)
+
+        return image, resolution, origin
+
+    def change_image_resolution(self, image, factor):
+        width = int(image.width * factor)
+        height = int(image.height * factor)
+        black_pixels = self.find_black_pixels(image)
+
+        enlarged_image, black_pixels = self.enlarge_black_pixels(
+            image, black_pixels, self.clearance
+        )
+
+        down_scaled_image = enlarged_image.resize(
+            (width, height), Image.Resampling.NEAREST
+        )
+
+        down_scaled_image = self.apply_black_pixels(
+            down_scaled_image, black_pixels, factor
+        )
+
+        up_scaled_image = down_scaled_image.resize(image.size, Image.Resampling.NEAREST)
+
+        return enlarged_image, down_scaled_image, up_scaled_image
+
+    def find_black_pixels(self, image):
+        black_pixels = []
+
+        for y in range(image.height):
+            for x in range(image.width):
+                if image.getpixel((x, y)) == 0:
+                    black_pixels.append((x, y))
+
+        return black_pixels
+
+    def enlarge_black_pixels(self, image, black_pixels, width):
+        new_image = image.copy()
+        pixel_width = math.ceil(width / self.resolution)
+        pixel_width = pixel_width + 1
+        new_black_pixels = set(black_pixels)
+
+        for x, y in black_pixels:
+            for dx in range(-pixel_width, pixel_width + 1):
+                for dy in range(-pixel_width, pixel_width + 1):
+                    selected_x, selected_y = x + dx, y + dy
+                    if (
+                        0 <= selected_x < new_image.width
+                        and 0 <= selected_y < new_image.height
+                    ):
+                        if (selected_x, selected_y) not in new_black_pixels:
+                            new_image.putpixel((selected_x, selected_y), 0)
+                            new_black_pixels.add((selected_x, selected_y))
+
+        return new_image, new_black_pixels
+
+    def apply_black_pixels(self, image, black_pixels, scale):
+        for x, y in black_pixels:
+            scaled_x = int(x * scale)
+            scaled_y = int(y * scale)
+            if 0 <= scaled_x < image.width and 0 <= scaled_y < image.height:
+                image.putpixel((scaled_x, scaled_y), 0)
+
+        return image
+
+    def publish_initial_cost_map(self):
+        while True:
+            if (
+                self.up_scaled_image is not None
+                and self.costmap_pub.get_num_connections() > 0
+            ):
+                self.publish_cost_map(self.up_scaled_image)
+                break
+            rospy.sleep(5.0)
+
+    def publish_cost_map(self, original_image, edges=None):
+        rgb_image = original_image.convert("RGB")
+        draw = ImageDraw.Draw(rgb_image)
+
+        if edges is not None:
+            for start, end in edges:
+                draw.line([start, end], fill=(128, 128, 128), width=1)
+
+        cost_map_msg = OccupancyGrid()
+        cost_map_msg.header.frame_id = "map"
+        cost_map_msg.header.stamp = rospy.Time.now()
+        cost_map_msg.info.resolution = self.resolution
+        cost_map_msg.info.width = rgb_image.width
+        cost_map_msg.info.height = rgb_image.height
+        cost_map_msg.info.origin.position.x = self.origin[0]
+        cost_map_msg.info.origin.position.y = self.origin[1]
+        cost_map_msg.info.origin.orientation.w = 1.0
+        cost_map_msg.data = []
+
+        for y in reversed(range(rgb_image.height)):
+            for x in range(rgb_image.width):
+                original_pixel = original_image.getpixel((x, y))
+                rgb_pixel = rgb_image.getpixel((x, y))
+                if original_pixel == 0 and rgb_pixel == (128, 128, 128):
+                    cost_map_msg.data.append(50)
+                elif original_pixel == 0:
+                    cost_map_msg.data.append(100)
+                else:
+                    cost_map_msg.data.append(0)
+
+        self.costmap_pub.publish(cost_map_msg)
+
     def initial_pose_callback(self, msg):
         self.start_point = self.pose_to_pixel(
             (msg.pose.pose.position.x, msg.pose.pose.position.y)
@@ -149,126 +269,6 @@ class VgraphPlannerNode:
                 f"\033[92m[Make Plan] Images saved to test folder: {self.test_folder_path}.\033[0m"
             )
             print("\033[92m[Make Plan] Process completed successfully.\033[0m")
-
-    def load_map_file(self, yaml_file_path):
-        with open(yaml_file_path, "r") as file:
-            map_yaml = yaml.safe_load(file)
-
-        directory = os.path.dirname(yaml_file_path)
-        image_file_name = map_yaml.get("image", None)
-
-        if image_file_name is not None:
-            image_path = os.path.join(directory, image_file_name)
-        else:
-            image_path = None
-
-        image = Image.open(image_path)
-        resolution = map_yaml.get("resolution", None)
-        origin = map_yaml.get("origin", None)
-
-        return image, resolution, origin
-
-    def change_image_resolution(self, image, factor):
-        width = int(image.width * factor)
-        height = int(image.height * factor)
-        black_pixels = self.find_black_pixels(image)
-
-        enlarged_image, black_pixels = self.enlarge_black_pixels(
-            image, black_pixels, self.clearance
-        )
-
-        down_scaled_image = enlarged_image.resize(
-            (width, height), Image.Resampling.NEAREST
-        )
-
-        down_scaled_image = self.apply_black_pixels(
-            down_scaled_image, black_pixels, factor
-        )
-
-        up_scaled_image = down_scaled_image.resize(image.size, Image.Resampling.NEAREST)
-
-        return enlarged_image, down_scaled_image, up_scaled_image
-
-    def publish_initial_cost_map(self):
-        while True:
-            if (
-                self.up_scaled_image is not None
-                and self.costmap_pub.get_num_connections() > 0
-            ):
-                self.publish_cost_map(self.up_scaled_image)
-                break
-            rospy.sleep(5.0)
-
-    def publish_cost_map(self, original_image, edges=None):
-        rgb_image = original_image.convert("RGB")
-        draw = ImageDraw.Draw(rgb_image)
-
-        if edges is not None:
-            for start, end in edges:
-                draw.line([start, end], fill=(128, 128, 128), width=1)
-
-        cost_map_msg = OccupancyGrid()
-        cost_map_msg.header.frame_id = "map"
-        cost_map_msg.header.stamp = rospy.Time.now()
-        cost_map_msg.info.resolution = self.resolution
-        cost_map_msg.info.width = rgb_image.width
-        cost_map_msg.info.height = rgb_image.height
-        cost_map_msg.info.origin.position.x = self.origin[0]
-        cost_map_msg.info.origin.position.y = self.origin[1]
-        cost_map_msg.info.origin.orientation.w = 1.0
-        cost_map_msg.data = []
-
-        for y in reversed(range(rgb_image.height)):
-            for x in range(rgb_image.width):
-                original_pixel = original_image.getpixel((x, y))
-                rgb_pixel = rgb_image.getpixel((x, y))
-                if original_pixel == 0 and rgb_pixel == (128, 128, 128):
-                    cost_map_msg.data.append(50)
-                elif original_pixel == 0:
-                    cost_map_msg.data.append(100)
-                else:
-                    cost_map_msg.data.append(0)
-
-        self.costmap_pub.publish(cost_map_msg)
-
-    def find_black_pixels(self, image):
-        black_pixels = []
-
-        for y in range(image.height):
-            for x in range(image.width):
-                if image.getpixel((x, y)) == 0:
-                    black_pixels.append((x, y))
-
-        return black_pixels
-
-    def enlarge_black_pixels(self, image, black_pixels, width):
-        new_image = image.copy()
-        pixel_width = math.ceil(width / self.resolution)
-        pixel_width = pixel_width + 1
-        new_black_pixels = set(black_pixels)
-
-        for x, y in black_pixels:
-            for dx in range(-pixel_width, pixel_width + 1):
-                for dy in range(-pixel_width, pixel_width + 1):
-                    selected_x, selected_y = x + dx, y + dy
-                    if (
-                        0 <= selected_x < new_image.width
-                        and 0 <= selected_y < new_image.height
-                    ):
-                        if (selected_x, selected_y) not in new_black_pixels:
-                            new_image.putpixel((selected_x, selected_y), 0)
-                            new_black_pixels.add((selected_x, selected_y))
-
-        return new_image, new_black_pixels
-
-    def apply_black_pixels(self, image, black_pixels, scale):
-        for x, y in black_pixels:
-            scaled_x = int(x * scale)
-            scaled_y = int(y * scale)
-            if 0 <= scaled_x < image.width and 0 <= scaled_y < image.height:
-                image.putpixel((scaled_x, scaled_y), 0)
-
-        return image
 
     def find_black_pixel_corners(self, image, corners):
         for y in range(1, image.height - 1):
@@ -401,6 +401,9 @@ class VgraphPlannerNode:
             rospy.logerr("Optimization failed. No path found.")
             return None
 
+    def euclidean_distance(self, point1, point2):
+        return math.sqrt((point1[0] - point2[0]) ** 2 + (point1[1] - point2[1]) ** 2)
+
     def aligne_path(self, edges, start):
         aligned_edges = []
         edge_map = {e[0]: e[1] for e in edges}
@@ -412,9 +415,6 @@ class VgraphPlannerNode:
             current_point = next_point
 
         return aligned_edges
-
-    def euclidean_distance(self, point1, point2):
-        return math.sqrt((point1[0] - point2[0]) ** 2 + (point1[1] - point2[1]) ** 2)
 
     def publish_path(self, aligned_edges):
         path_msg = Path()
