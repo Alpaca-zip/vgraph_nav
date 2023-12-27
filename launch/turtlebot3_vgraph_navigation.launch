@@ -8,7 +8,7 @@
   <arg name="map_file" default="$(find vgraph_planner)/maps/map.yaml"/>
   <arg name="test_folder" default="$(find vgraph_planner)/test"/>
   <arg name="down_scale_factor" default="0.3"/>
-  <arg name="clearance" default="0.2"/>
+  <arg name="clearance" default="0.1"/>
   <arg name="open_rviz" default="true"/>
 
   <include file="$(find vgraph_planner)/launch/include/turtlebot3_world.launch">

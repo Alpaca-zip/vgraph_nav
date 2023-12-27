@@ -21,6 +21,7 @@ import os
 import mip
 import rospy
 import yaml
+from nav_msgs.msg import OccupancyGrid
 from nav_msgs.msg import Path
 from geometry_msgs.msg import PoseStamped
 from geometry_msgs.msg import PoseWithCovarianceStamped
@@ -37,6 +38,7 @@ class VgraphPlannerNode:
         self.start_point = None
         self.end_point = None
 
+        self.costmap_pub = rospy.Publisher("/cost_map", OccupancyGrid, queue_size=10)
         self.path_pub = rospy.Publisher("/path", Path, queue_size=10)
         rospy.Subscriber(
             "/initialpose", PoseWithCovarianceStamped, self.initial_pose_callback
@@ -52,6 +54,8 @@ class VgraphPlannerNode:
             self.down_scaled_image,
             self.up_scaled_image,
         ) = self.change_image_resolution(self.original_image, self.down_scale_factor)
+
+        self.publish_initial_cost_map()
 
     def __del__(self):
         pass
@@ -95,8 +99,10 @@ class VgraphPlannerNode:
     def pixel_to_pose(self, pixel):
         origin_x = self.origin[0]
         origin_y = self.origin[1]
-        pose_x = origin_x + pixel[0] * self.resolution
-        pose_y = origin_y + (self.original_image.height - pixel[1]) * self.resolution
+        pose_x = origin_x + (pixel[0] + 0.5) * self.resolution
+        pose_y = (
+            origin_y + (self.original_image.height - pixel[1] - 0.5) * self.resolution
+        )
 
         return (pose_x, pose_y)
 
@@ -104,7 +110,7 @@ class VgraphPlannerNode:
         print("\033[92m[Make Plan] Process started.\033[0m")
         corners = []
         corners.append(start)
-        self.find_black_pixel_corners(self.up_scaled_image, corners)
+        corners = self.find_black_pixel_corners(self.up_scaled_image, corners)
         corners.append(goal)
 
         valid_edges = self.get_valid_edges(self.up_scaled_image, corners)
@@ -115,6 +121,8 @@ class VgraphPlannerNode:
             shortest_path_edges = self.aligne_path(shortest_path_edges, start)
 
             self.publish_path(shortest_path_edges)
+
+            self.publish_cost_map(self.up_scaled_image, shortest_path_edges)
 
             path_graph_image = self.draw_path_with_markers(
                 self.up_scaled_image, valid_edges
@@ -181,6 +189,48 @@ class VgraphPlannerNode:
 
         return enlarged_image, down_scaled_image, up_scaled_image
 
+    def publish_initial_cost_map(self):
+        while True:
+            if (
+                self.up_scaled_image is not None
+                and self.costmap_pub.get_num_connections() > 0
+            ):
+                self.publish_cost_map(self.up_scaled_image)
+                break
+            rospy.sleep(5.0)
+
+    def publish_cost_map(self, original_image, edges=None):
+        rgb_image = original_image.convert("RGB")
+        draw = ImageDraw.Draw(rgb_image)
+
+        if edges is not None:
+            for start, end in edges:
+                draw.line([start, end], fill=(128, 128, 128), width=1)
+
+        cost_map_msg = OccupancyGrid()
+        cost_map_msg.header.frame_id = "map"
+        cost_map_msg.header.stamp = rospy.Time.now()
+        cost_map_msg.info.resolution = self.resolution
+        cost_map_msg.info.width = rgb_image.width
+        cost_map_msg.info.height = rgb_image.height
+        cost_map_msg.info.origin.position.x = self.origin[0]
+        cost_map_msg.info.origin.position.y = self.origin[1]
+        cost_map_msg.info.origin.orientation.w = 1.0
+        cost_map_msg.data = []
+
+        for y in reversed(range(rgb_image.height)):
+            for x in range(rgb_image.width):
+                original_pixel = original_image.getpixel((x, y))
+                rgb_pixel = rgb_image.getpixel((x, y))
+                if original_pixel == 0 and rgb_pixel == (128, 128, 128):
+                    cost_map_msg.data.append(50)
+                elif original_pixel == 0:
+                    cost_map_msg.data.append(100)
+                else:
+                    cost_map_msg.data.append(0)
+
+        self.costmap_pub.publish(cost_map_msg)
+
     def find_black_pixels(self, image):
         black_pixels = []
 
@@ -193,7 +243,8 @@ class VgraphPlannerNode:
 
     def enlarge_black_pixels(self, image, black_pixels, width):
         new_image = image.copy()
-        pixel_width = round(width / self.resolution)
+        pixel_width = math.ceil(width / self.resolution)
+        pixel_width = pixel_width + 1
         new_black_pixels = set(black_pixels)
 
         for x, y in black_pixels:
@@ -231,6 +282,8 @@ class VgraphPlannerNode:
                     )
                     if black_neighbors == 3:
                         corners.append((x, y))
+
+        return corners
 
     def get_valid_edges(self, image, corners):
         valid_edges = []
