@@ -11,7 +11,11 @@ find_package(catkin REQUIRED COMPONENTS
 )
 
 # Declare a catkin package
-catkin_package(CATKIN_DEPENDS rospy)
+catkin_package(CATKIN_DEPENDS 
+  geometry_msgs
+  nav_msgs
+  rospy
+)
 
 # Install Python executables
 install(PROGRAMS scripts/vgraph_planner.py DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION})
