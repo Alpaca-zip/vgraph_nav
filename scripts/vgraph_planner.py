@@ -21,6 +21,7 @@ import os
 import mip
 import rospy
 import yaml
+from nav_msgs.msg import Path
 from geometry_msgs.msg import PoseStamped
 from geometry_msgs.msg import PoseWithCovarianceStamped
 from PIL import Image, ImageDraw
@@ -40,6 +41,7 @@ class VgraphPlannerNode:
             self.map_file_path
         )
 
+        self.path_pub = rospy.Publisher("/path", Path, queue_size=10)
         rospy.Subscriber(
             "/initialpose", PoseWithCovarianceStamped, self.initial_pose_callback
         )
@@ -76,6 +78,14 @@ class VgraphPlannerNode:
 
         return (pixel_x, pixel_y)
 
+    def pixel_to_pose(self, pixel):
+        origin_x = self.origin[0]
+        origin_y = self.origin[1]
+        pose_x = origin_x + pixel[0] * self.resolution
+        pose_y = origin_y + (self.original_image.height - pixel[1]) * self.resolution
+
+        return (pose_x, pose_y)
+
     def make_plan(self, image, start, goal):
         print("\033[92m[Make Plan] Process started.\033[0m")
 
@@ -97,6 +107,10 @@ class VgraphPlannerNode:
         shortest_path_edges = self.calculate_shortest_path(corners, valid_edges)
 
         if shortest_path_edges is not None:
+            shortest_path_edges = self.sequence_path(shortest_path_edges, start)
+
+            self.publish_path(shortest_path_edges)
+
             path_graph_image = self.draw_lines_between_corners(
                 up_scaled_image, corners, valid_edges
             )
@@ -328,9 +342,48 @@ class VgraphPlannerNode:
         else:
             rospy.logerr("Optimization failed. No path found.")
             return None
+    
+    def sequence_path(self, edges, start):
+        aligned_edges = []
+        edge_map = {e[0]: e[1] for e in edges}
+        current_point = start
+
+        while current_point in edge_map:
+            next_point = edge_map[current_point]
+            aligned_edges.append((current_point, next_point))
+            current_point = next_point
+
+        return aligned_edges
 
     def euclidean_distance(self, point1, point2):
         return math.sqrt((point1[0] - point2[0]) ** 2 + (point1[1] - point2[1]) ** 2)
+
+    def publish_path(self, edges):
+        path_msg = Path()
+        path_msg.header.frame_id = "map"
+        path_msg.header.stamp = rospy.Time.now()
+
+        start_edge = edges[0]
+        start_pose = self.pixel_to_pose((start_edge[0][0], start_edge[0][1]))
+
+        start_pose_stamped = PoseStamped()
+        start_pose_stamped.header = path_msg.header
+        start_pose_stamped.pose.position.x = start_pose[0]
+        start_pose_stamped.pose.position.y = start_pose[1]
+        start_pose_stamped.pose.orientation.w = 1.0
+        path_msg.poses.append(start_pose_stamped)
+
+        for edge in edges:
+            end_pose = self.pixel_to_pose((edge[1][0], edge[1][1]))
+
+            end_pose_stamped = PoseStamped()
+            end_pose_stamped.header = path_msg.header
+            end_pose_stamped.pose.position.x = end_pose[0]
+            end_pose_stamped.pose.position.y = end_pose[1]
+            end_pose_stamped.pose.orientation.w = 1.0
+            path_msg.poses.append(end_pose_stamped)
+
+        self.path_pub.publish(path_msg)
 
     def draw_lines_between_corners(self, image, corners, edges):
         rgb_image = image.convert("RGB")
