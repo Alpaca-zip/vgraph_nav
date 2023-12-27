@@ -37,15 +37,21 @@ class VgraphPlannerNode:
         self.start_point = None
         self.end_point = None
 
-        self.original_image, self.resolution, self.origin = self.load_map_file(
-            self.map_file_path
-        )
-
         self.path_pub = rospy.Publisher("/path", Path, queue_size=10)
         rospy.Subscriber(
             "/initialpose", PoseWithCovarianceStamped, self.initial_pose_callback
         )
         rospy.Subscriber("/move_base_simple/goal", PoseStamped, self.goal_callback)
+
+        self.original_image, self.resolution, self.origin = self.load_map_file(
+            self.map_file_path
+        )
+
+        (
+            self.enlarged_image,
+            self.down_scaled_image,
+            self.up_scaled_image,
+        ) = self.change_image_resolution(self.original_image, self.down_scale_factor)
 
     def __del__(self):
         pass
@@ -60,11 +66,19 @@ class VgraphPlannerNode:
         if self.start_point is None:
             rospy.logwarn("Initial pose is not set. Please set initial pose first.")
             return
+        elif self.end_point is not None:
+            rospy.logwarn(
+                "Goal is already set. Please wait for the current path to be calculated."
+            )
+            return
+        elif self.up_scaled_image is None:
+            rospy.logwarn("Map is not loaded. Please wait for the map to be loaded.")
+            return
 
         self.end_point = self.pose_to_pixel((msg.pose.position.x, msg.pose.position.y))
         rospy.loginfo("Set goal.")
 
-        self.make_plan(self.original_image, self.start_point, self.end_point)
+        self.make_plan(self.start_point, self.end_point)
         self.start_point = None
         self.end_point = None
 
@@ -86,23 +100,14 @@ class VgraphPlannerNode:
 
         return (pose_x, pose_y)
 
-    def make_plan(self, image, start, goal):
+    def make_plan(self, start, goal):
         print("\033[92m[Make Plan] Process started.\033[0m")
-
-        (
-            enlarged_image,
-            down_scaled_image,
-            up_scaled_image,
-        ) = self.change_image_resolution(image, self.down_scale_factor)
-
-        print("\033[92m[Make Plan] Image resolution changed.\033[0m")
-
         corners = []
         corners.append(start)
-        self.find_black_pixel_corners(up_scaled_image, corners)
+        self.find_black_pixel_corners(self.up_scaled_image, corners)
         corners.append(goal)
 
-        valid_edges = self.get_valid_edges(up_scaled_image, corners)
+        valid_edges = self.get_valid_edges(self.up_scaled_image, corners)
 
         shortest_path_edges = self.calculate_shortest_path(corners, valid_edges)
 
@@ -111,18 +116,20 @@ class VgraphPlannerNode:
 
             self.publish_path(shortest_path_edges)
 
-            path_graph_image = self.draw_path_with_markers(up_scaled_image, valid_edges)
+            path_graph_image = self.draw_path_with_markers(
+                self.up_scaled_image, valid_edges
+            )
             optimized_path_image_upscaled = self.draw_path_with_markers(
-                up_scaled_image, shortest_path_edges
+                self.up_scaled_image, shortest_path_edges
             )
             optimized_path_image_original = self.draw_path_with_markers(
-                image, shortest_path_edges
+                self.original_image, shortest_path_edges
             )
 
-            image.save(self.test_folder_path + "/original.png")
-            enlarged_image.save(self.test_folder_path + "/enlarged.png")
-            down_scaled_image.save(self.test_folder_path + "/down_scaled.png")
-            up_scaled_image.save(self.test_folder_path + "/up_scaled.png")
+            self.original_image.save(self.test_folder_path + "/original.png")
+            self.enlarged_image.save(self.test_folder_path + "/enlarged.png")
+            self.down_scaled_image.save(self.test_folder_path + "/down_scaled.png")
+            self.up_scaled_image.save(self.test_folder_path + "/up_scaled.png")
             path_graph_image.save(self.test_folder_path + "/path_graph.png")
             optimized_path_image_upscaled.save(
                 self.test_folder_path + "/optimized_path_upscaled.png"
