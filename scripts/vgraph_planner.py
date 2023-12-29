@@ -21,6 +21,10 @@ import os
 import mip
 import rospy
 import yaml
+from nav_msgs.msg import OccupancyGrid
+from nav_msgs.msg import Path
+from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseWithCovarianceStamped
 from PIL import Image, ImageDraw
 
 
@@ -28,82 +32,33 @@ class VgraphPlannerNode:
     def __init__(self):
         self.map_file_path = rospy.get_param("~map_file", "map.yaml")
         self.test_folder_path = rospy.get_param("~test_folder", "test")
-        self.down_scale_factor = rospy.get_param("~down_scale_factor", 0.2)
-        self.clearance = rospy.get_param("~clearance", 0.3)
+        self.down_scale_factor = rospy.get_param("~down_scale_factor", 0.1)
+        self.clearance = rospy.get_param("~clearance", 0.1)
         self.use_origin = rospy.get_param("~use_origin", True)
-        self.start_point = rospy.get_param("~start_point", (200, 30))
-        self.end_point = rospy.get_param("~end_point", (150, 370))
+        self.start_point = None
+        self.end_point = None
+
+        self.costmap_pub = rospy.Publisher("/cost_map", OccupancyGrid, queue_size=10)
+        self.path_pub = rospy.Publisher("/path", Path, queue_size=10)
+        rospy.Subscriber(
+            "/initialpose", PoseWithCovarianceStamped, self.initial_pose_callback
+        )
+        rospy.Subscriber("/move_base_simple/goal", PoseStamped, self.goal_callback)
 
         self.original_image, self.resolution, self.origin = self.load_map_file(
             self.map_file_path
         )
 
-        if self.use_origin:
-            self.start_point = self.origin_to_pixel(self.origin, self.original_image)
+        (
+            self.enlarged_image,
+            self.down_scaled_image,
+            self.up_scaled_image,
+        ) = self.change_image_resolution(self.original_image, self.down_scale_factor)
 
-        self.make_plan(self.original_image, self.start_point, self.end_point)
+        self.publish_initial_cost_map()
 
     def __del__(self):
         pass
-
-    def origin_to_pixel(self, origin, image):
-        pixel_x = int(round(abs(origin[0]) / self.resolution))
-        pixel_y = int(round(image.height - (abs(origin[1]) / self.resolution)))
-
-        return (pixel_x, pixel_y)
-
-    def make_plan(self, image, start, goal):
-        rospy.loginfo("\033[92m[Make Plan] Process started.\033[0m")
-        rospy.loginfo(
-            f"\033[92m[Make Plan] Received start: {start}, goal: {goal}.\033[0m"
-        )
-
-        (
-            enlarged_image,
-            down_scaled_image,
-            up_scaled_image,
-        ) = self.change_image_resolution(image, self.down_scale_factor)
-
-        rospy.loginfo("\033[92m[Make Plan] Image resolution changed.\033[0m")
-
-        corners = []
-        corners.append(start)
-        self.find_black_pixel_corners(up_scaled_image, corners)
-        rospy.loginfo("\033[92m[Make Plan] Black pixel corners found.\033[0m")
-        corners.append(goal)
-
-        valid_edges = self.get_valid_edges(up_scaled_image, corners)
-        rospy.loginfo("\033[92m[Make Plan] Valid edges found.\033[0m")
-
-        shortest_path_edges = self.calculate_shortest_path(corners, valid_edges)
-        rospy.loginfo("\033[92m[Make Plan] Shortest path calculated.\033[0m")
-
-        path_graph_image = self.draw_lines_between_corners(
-            up_scaled_image, corners, valid_edges
-        )
-        optimized_path_image_upscaled = self.draw_lines_between_corners(
-            up_scaled_image, corners, shortest_path_edges
-        )
-        optimized_path_image_original = self.draw_lines_between_corners(
-            image, corners, shortest_path_edges
-        )
-        rospy.loginfo("\033[92m[Make Plan] Images drawn.\033[0m")
-
-        image.save(self.test_folder_path + "/original.png")
-        enlarged_image.save(self.test_folder_path + "/enlarged.png")
-        down_scaled_image.save(self.test_folder_path + "/down_scaled.png")
-        up_scaled_image.save(self.test_folder_path + "/up_scaled.png")
-        path_graph_image.save(self.test_folder_path + "/path_graph.png")
-        optimized_path_image_upscaled.save(
-            self.test_folder_path + "/optimized_path_upscaled.png"
-        )
-        optimized_path_image_original.save(
-            self.test_folder_path + "/optimized_path_original.png"
-        )
-        rospy.loginfo(
-            f"\033[92m[Make Plan] Images saved to test folder: {self.test_folder_path}.\033[0m"
-        )
-        rospy.loginfo("\033[92m[Make Plan] Process completed.\033[0m")
 
     def load_map_file(self, yaml_file_path):
         with open(yaml_file_path, "r") as file:
@@ -156,7 +111,8 @@ class VgraphPlannerNode:
 
     def enlarge_black_pixels(self, image, black_pixels, width):
         new_image = image.copy()
-        pixel_width = round(width / self.resolution)
+        pixel_width = math.ceil(width / self.resolution)
+        pixel_width = pixel_width + 1
         new_black_pixels = set(black_pixels)
 
         for x, y in black_pixels:
@@ -182,6 +138,138 @@ class VgraphPlannerNode:
 
         return image
 
+    def publish_initial_cost_map(self):
+        while True:
+            if (
+                self.up_scaled_image is not None
+                and self.costmap_pub.get_num_connections() > 0
+            ):
+                self.publish_cost_map(self.up_scaled_image)
+                break
+            rospy.sleep(5.0)
+
+    def publish_cost_map(self, original_image, edges=None):
+        rgb_image = original_image.convert("RGB")
+        draw = ImageDraw.Draw(rgb_image)
+
+        if edges is not None:
+            for start, end in edges:
+                draw.line([start, end], fill=(128, 128, 128), width=1)
+
+        cost_map_msg = OccupancyGrid()
+        cost_map_msg.header.frame_id = "map"
+        cost_map_msg.header.stamp = rospy.Time.now()
+        cost_map_msg.info.resolution = self.resolution
+        cost_map_msg.info.width = rgb_image.width
+        cost_map_msg.info.height = rgb_image.height
+        cost_map_msg.info.origin.position.x = self.origin[0]
+        cost_map_msg.info.origin.position.y = self.origin[1]
+        cost_map_msg.info.origin.orientation.w = 1.0
+        cost_map_msg.data = []
+
+        for y in reversed(range(rgb_image.height)):
+            for x in range(rgb_image.width):
+                original_pixel = original_image.getpixel((x, y))
+                rgb_pixel = rgb_image.getpixel((x, y))
+                if original_pixel == 0 and rgb_pixel == (128, 128, 128):
+                    cost_map_msg.data.append(50)
+                elif original_pixel == 0:
+                    cost_map_msg.data.append(100)
+                else:
+                    cost_map_msg.data.append(0)
+
+        self.costmap_pub.publish(cost_map_msg)
+
+    def initial_pose_callback(self, msg):
+        self.start_point = self.pose_to_pixel(
+            (msg.pose.pose.position.x, msg.pose.pose.position.y)
+        )
+        rospy.loginfo("Set initial pose.")
+
+    def goal_callback(self, msg):
+        if self.start_point is None:
+            rospy.logwarn("Initial pose is not set. Please set initial pose first.")
+            return
+        elif self.end_point is not None:
+            rospy.logwarn(
+                "Goal is already set. Please wait for the current path to be calculated."
+            )
+            return
+        elif self.up_scaled_image is None:
+            rospy.logwarn("Map is not loaded. Please wait for the map to be loaded.")
+            return
+
+        self.end_point = self.pose_to_pixel((msg.pose.position.x, msg.pose.position.y))
+        rospy.loginfo("Set goal.")
+
+        self.make_plan(self.start_point, self.end_point)
+        self.start_point = None
+        self.end_point = None
+
+    def pose_to_pixel(self, pose):
+        origin_x = self.origin[0]
+        origin_y = self.origin[1]
+        pixel_x = int(round((pose[0] - origin_x) / self.resolution))
+        pixel_y = self.original_image.height - int(
+            round((pose[1] - origin_y) / self.resolution)
+        )
+
+        return (pixel_x, pixel_y)
+
+    def pixel_to_pose(self, pixel):
+        origin_x = self.origin[0]
+        origin_y = self.origin[1]
+        pose_x = origin_x + (pixel[0] + 0.5) * self.resolution
+        pose_y = (
+            origin_y + (self.original_image.height - pixel[1] - 0.5) * self.resolution
+        )
+
+        return (pose_x, pose_y)
+
+    def make_plan(self, start, goal):
+        print("\033[92m[Make Plan] Process started.\033[0m")
+        corners = []
+        corners.append(start)
+        corners = self.find_black_pixel_corners(self.up_scaled_image, corners)
+        corners.append(goal)
+
+        valid_edges = self.get_valid_edges(self.up_scaled_image, corners)
+
+        shortest_path_edges = self.calculate_shortest_path(corners, valid_edges)
+
+        if shortest_path_edges is not None:
+            shortest_path_edges = self.aligne_path(shortest_path_edges, start)
+
+            self.publish_path(shortest_path_edges)
+
+            self.publish_cost_map(self.up_scaled_image, shortest_path_edges)
+
+            path_graph_image = self.draw_path_with_markers(
+                self.up_scaled_image, valid_edges
+            )
+            optimized_path_image_upscaled = self.draw_path_with_markers(
+                self.up_scaled_image, shortest_path_edges
+            )
+            optimized_path_image_original = self.draw_path_with_markers(
+                self.original_image, shortest_path_edges
+            )
+
+            self.original_image.save(self.test_folder_path + "/original.png")
+            self.enlarged_image.save(self.test_folder_path + "/enlarged.png")
+            self.down_scaled_image.save(self.test_folder_path + "/down_scaled.png")
+            self.up_scaled_image.save(self.test_folder_path + "/up_scaled.png")
+            path_graph_image.save(self.test_folder_path + "/path_graph.png")
+            optimized_path_image_upscaled.save(
+                self.test_folder_path + "/optimized_path_upscaled.png"
+            )
+            optimized_path_image_original.save(
+                self.test_folder_path + "/optimized_path_original.png"
+            )
+            print(
+                f"\033[92m[Make Plan] Images saved to test folder: {self.test_folder_path}.\033[0m"
+            )
+            print("\033[92m[Make Plan] Process completed successfully.\033[0m")
+
     def find_black_pixel_corners(self, image, corners):
         for y in range(1, image.height - 1):
             for x in range(1, image.width - 1):
@@ -194,6 +282,8 @@ class VgraphPlannerNode:
                     )
                     if black_neighbors == 3:
                         corners.append((x, y))
+
+        return corners
 
     def get_valid_edges(self, image, corners):
         valid_edges = []
@@ -300,25 +390,69 @@ class VgraphPlannerNode:
         if model.status == mip.OptimizationStatus.OPTIMAL:
             shortest_path_edges = [(i, j) for i, j in valid_edges if x[i, j].x >= 0.99]
 
+            if not shortest_path_edges:
+                rospy.logerr("Optimization succeeded, but no valid path was found.")
+                return None
+
+            print("\033[92m[Make Plan] Shortest path calculated.\033[0m")
+
             return shortest_path_edges
         else:
             rospy.logerr("Optimization failed. No path found.")
-
             return None
 
     def euclidean_distance(self, point1, point2):
         return math.sqrt((point1[0] - point2[0]) ** 2 + (point1[1] - point2[1]) ** 2)
 
-    def draw_lines_between_corners(self, image, corners, edges):
+    def aligne_path(self, edges, start):
+        aligned_edges = []
+        edge_map = {e[0]: e[1] for e in edges}
+        current_point = start
+
+        while current_point in edge_map:
+            next_point = edge_map[current_point]
+            aligned_edges.append((current_point, next_point))
+            current_point = next_point
+
+        return aligned_edges
+
+    def publish_path(self, aligned_edges):
+        path_msg = Path()
+        path_msg.header.frame_id = "map"
+        path_msg.header.stamp = rospy.Time.now()
+
+        start_edge = aligned_edges[0]
+        start_pose = self.pixel_to_pose((start_edge[0][0], start_edge[0][1]))
+
+        start_pose_stamped = PoseStamped()
+        start_pose_stamped.header = path_msg.header
+        start_pose_stamped.pose.position.x = start_pose[0]
+        start_pose_stamped.pose.position.y = start_pose[1]
+        start_pose_stamped.pose.orientation.w = 1.0
+        path_msg.poses.append(start_pose_stamped)
+
+        for edge in aligned_edges:
+            end_pose = self.pixel_to_pose((edge[1][0], edge[1][1]))
+
+            end_pose_stamped = PoseStamped()
+            end_pose_stamped.header = path_msg.header
+            end_pose_stamped.pose.position.x = end_pose[0]
+            end_pose_stamped.pose.position.y = end_pose[1]
+            end_pose_stamped.pose.orientation.w = 1.0
+            path_msg.poses.append(end_pose_stamped)
+
+        self.path_pub.publish(path_msg)
+
+    def draw_path_with_markers(self, image, aligned_edges):
         rgb_image = image.convert("RGB")
         draw = ImageDraw.Draw(rgb_image)
-        start_point = corners[0]
-        end_point = corners[-1]
-        radius = 5
 
-        for start, end in edges:
+        for start, end in aligned_edges:
             draw.line([start, end], fill=(255, 0, 0), width=1)
 
+        start_point = aligned_edges[0][0]
+        end_point = aligned_edges[-1][1]
+        radius = 5
         draw.ellipse(
             (
                 start_point[0] - radius,
@@ -344,6 +478,7 @@ class VgraphPlannerNode:
 def main():
     rospy.init_node("vgraph_planner_node")
     VgraphPlannerNode()
+    rospy.spin()
 
 
 if __name__ == "__main__":

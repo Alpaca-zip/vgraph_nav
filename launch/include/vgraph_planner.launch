@@ -2,15 +2,13 @@
 <launch>
   <arg name="map_file" default="$(find vgraph_planner)/map/map.yaml"/>
   <arg name="test_folder" default="$(find vgraph_planner)/test"/>
-  <arg name="down_scale_factor" default="0.2"/>
-  <arg name="clearance" default="0.3"/>
-  <arg name="use_origin" default="true"/>
+  <arg name="down_scale_factor" default="0.1"/>
+  <arg name="clearance" default="0.1"/>
 
   <node name="vgraph_planner_node" pkg="vgraph_planner" type="vgraph_planner.py" output="screen">
     <param name="~map_file" value="$(arg map_file)"/>
     <param name="~test_folder" value="$(arg test_folder)"/>
     <param name="~down_scale_factor" value="$(arg down_scale_factor)"/>
     <param name="~clearance" value="$(arg clearance)"/>
-    <param name="~use_origin" value="$(arg use_origin)"/>
   </node>
 </launch>

@@ -52,3 +52,7 @@ CATKIN_IGNORE
 
 # vscode
 .vscode
+
+# debug
+/test/*
+!/test/.gitkeep
