@@ -20,11 +20,11 @@ import os
 
 import mip
 import rospy
+import tf
+import tf2_ros
 import yaml
-from nav_msgs.msg import OccupancyGrid
-from nav_msgs.msg import Path
-from geometry_msgs.msg import PoseStamped
-from geometry_msgs.msg import PoseWithCovarianceStamped
+from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped, Twist
+from nav_msgs.msg import OccupancyGrid, Odometry, Path
 from PIL import Image, ImageDraw
 
 
@@ -34,16 +34,25 @@ class VgraphPlannerNode:
         self.test_folder_path = rospy.get_param("~test_folder", "test")
         self.down_scale_factor = rospy.get_param("~down_scale_factor", 0.1)
         self.clearance = rospy.get_param("~clearance", 0.1)
-        self.use_origin = rospy.get_param("~use_origin", True)
+        self.odom_topic = rospy.get_param("~odom_topic", "/odom")
+        self.vel_linear = rospy.get_param("~vel_linear", 0.1)
+        self.vel_theta = rospy.get_param("~vel_theta", 0.1)
+        self.angle_tolerance = rospy.get_param("~angle_tolerance", 0.1)
+        self.goal_tolerance = rospy.get_param("~goal_tolerance", 0.1)
         self.start_point = None
         self.end_point = None
 
         self.costmap_pub = rospy.Publisher("/cost_map", OccupancyGrid, queue_size=10)
         self.path_pub = rospy.Publisher("/path", Path, queue_size=10)
+        self.cmd_vel_pub = rospy.Publisher("/cmd_vel", Twist, queue_size=10)
         rospy.Subscriber(
             "/initialpose", PoseWithCovarianceStamped, self.initial_pose_callback
         )
         rospy.Subscriber("/move_base_simple/goal", PoseStamped, self.goal_callback)
+        rospy.Subscriber(self.odom_topic, Odometry, self.odom_callback)
+
+        self.tf_buffer = tf2_ros.Buffer()
+        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
 
         self.original_image, self.resolution, self.origin = self.load_map_file(
             self.map_file_path
@@ -188,13 +197,15 @@ class VgraphPlannerNode:
 
     def goal_callback(self, msg):
         if self.start_point is None:
-            rospy.logwarn("Initial pose is not set. Please set initial pose first.")
-            return
-        elif self.end_point is not None:
-            rospy.logwarn(
-                "Goal is already set. Please wait for the current path to be calculated."
-            )
-            return
+            current_position = self.get_current_position()
+            if current_position is not None:
+                self.start_point = self.pose_to_pixel(current_position)
+                rospy.loginfo("Automatically set initial pose.")
+            else:
+                rospy.logwarn(
+                    "Cannot set initial pose automatically. Please set initial pose manually."
+                )
+                return
         elif self.up_scaled_image is None:
             rospy.logwarn("Map is not loaded. Please wait for the map to be loaded.")
             return
@@ -202,9 +213,15 @@ class VgraphPlannerNode:
         self.end_point = self.pose_to_pixel((msg.pose.position.x, msg.pose.position.y))
         rospy.loginfo("Set goal.")
 
-        self.make_plan(self.start_point, self.end_point)
+        path = self.make_plan(self.start_point, self.end_point)
+
+        self.navigate_along_path(path, msg)
+
         self.start_point = None
         self.end_point = None
+
+    def odom_callback(self, msg):
+        self.current_odom = msg
 
     def pose_to_pixel(self, pose):
         origin_x = self.origin[0]
@@ -269,6 +286,8 @@ class VgraphPlannerNode:
                 f"\033[92m[Make Plan] Images saved to test folder: {self.test_folder_path}.\033[0m"
             )
             print("\033[92m[Make Plan] Process completed successfully.\033[0m")
+
+        return shortest_path_edges
 
     def find_black_pixel_corners(self, image, corners):
         for y in range(1, image.height - 1):
@@ -473,6 +492,191 @@ class VgraphPlannerNode:
         )
 
         return rgb_image
+
+    def navigate_along_path(self, edges, final_pose):
+        if edges is None or self.current_odom is None:
+            return
+
+        for edge in edges:
+            print(f"\033[92m[Navigate] Moving to waypoint: {edge[1]}.\033[0m")
+            if not self.move_to_goal(edge):
+                rospy.logwarn("Aborting navigation.")
+                return
+            print("\033[92m[Navigate] Reached waypoint.\033[0m")
+
+        if final_pose is not None:
+            if not self.rotate_to_final_pose(final_pose):
+                rospy.logwarn("Aborting navigation.")
+                return
+            print("\033[92m[Navigate] Reached final pose.\033[0m")
+
+    def move_to_goal(self, edge):
+        current_position = self.get_current_position()
+        if current_position is None:
+            return False
+        end_position = self.pixel_to_pose((edge[1][0], edge[1][1]))
+        goal_distance = math.sqrt(
+            (end_position[0] - current_position[0]) ** 2
+            + (end_position[1] - current_position[1]) ** 2
+        )
+
+        while goal_distance > self.goal_tolerance:
+            if not self.rotate_to_goal(edge):
+                return False
+
+            current_position = self.get_current_position()
+            if current_position is None:
+                return False
+            goal_distance = math.sqrt(
+                (end_position[0] - current_position[0]) ** 2
+                + (end_position[1] - current_position[1]) ** 2
+            )
+
+            cmd_vel_msg = Twist()
+            cmd_vel_msg.linear.x = self.vel_linear
+            self.cmd_vel_pub.publish(cmd_vel_msg)
+
+            rospy.sleep(0.1)
+
+        self.send_stop()
+        return True
+
+    def rotate_to_goal(self, edge):
+        rotate_flag = False
+        current_position = self.get_current_position()
+        if current_position is None:
+            return False
+        end_position = self.pixel_to_pose((edge[1][0], edge[1][1]))
+        goal_angle = math.atan2(
+            end_position[1] - current_position[1], end_position[0] - current_position[0]
+        )
+        current_angle = self.get_current_angle()
+        if current_angle is None:
+            return False
+        diff_angle = self.normalize_angle(goal_angle - current_angle)
+        current_speed = self.vel_theta
+
+        while abs(diff_angle) > self.angle_tolerance:
+            rotate_flag = True
+            current_angle = self.get_current_angle()
+            if current_angle is None:
+                return False
+            diff_angle = self.normalize_angle(goal_angle - current_angle)
+            rotation_time = abs(diff_angle) / current_speed
+            rotation_direction = 1 if diff_angle > 0 else -1
+
+            cmd_vel_msg = Twist()
+            cmd_vel_msg.angular.z = rotation_direction * current_speed
+            self.cmd_vel_pub.publish(cmd_vel_msg)
+            rospy.sleep(rotation_time)
+
+            current_speed *= 0.8
+
+        if rotate_flag:
+            self.send_stop()
+
+        return True
+
+    def rotate_to_final_pose(self, final_pose):
+        final_angle = tf.transformations.euler_from_quaternion(
+            [
+                final_pose.pose.orientation.x,
+                final_pose.pose.orientation.y,
+                final_pose.pose.orientation.z,
+                final_pose.pose.orientation.w,
+            ]
+        )[2]
+        current_angle = self.get_current_angle()
+        if current_angle is None:
+            return False
+        diff_angle = self.normalize_angle(final_angle - current_angle)
+        current_speed = self.vel_theta
+
+        while abs(diff_angle) > self.angle_tolerance:
+            current_angle = self.get_current_angle()
+            if current_angle is None:
+                return False
+            diff_angle = self.normalize_angle(final_angle - current_angle)
+            rotation_time = abs(diff_angle) / current_speed
+            rotation_direction = 1 if diff_angle > 0 else -1
+
+            cmd_vel_msg = Twist()
+            cmd_vel_msg.angular.z = rotation_direction * current_speed
+            self.cmd_vel_pub.publish(cmd_vel_msg)
+            rospy.sleep(rotation_time)
+
+            current_speed *= 0.8
+
+        self.send_stop()
+        return True
+
+    def send_stop(self):
+        start_time = rospy.get_time()
+        cmd_vel_msg = Twist()
+        cmd_vel_msg.linear.x = 0.0
+        cmd_vel_msg.angular.z = 0.0
+
+        while True:
+            self.cmd_vel_pub.publish(cmd_vel_msg)
+
+            current_velocity = math.sqrt(
+                self.current_odom.twist.twist.linear.x**2
+                + self.current_odom.twist.twist.linear.y**2
+                + self.current_odom.twist.twist.angular.z**2
+            )
+
+            if current_velocity < 0.01:
+                break
+            elif rospy.get_time() - start_time > 10:
+                rospy.logwarn_throttle(
+                    1.0,
+                    "It took more than 10 seconds to stop. Check if the odometry is working properly.",
+                )
+
+            rospy.sleep(0.1)
+
+    def get_current_position(self):
+        try:
+            transform = self.tf_buffer.lookup_transform(
+                "map",
+                self.current_odom.child_frame_id,
+                rospy.Time(0),
+                rospy.Duration(1.0),
+            )
+
+            return (
+                transform.transform.translation.x,
+                transform.transform.translation.y,
+            )
+        except:
+            rospy.logwarn("Failed to get current position.")
+            return None
+
+    def get_current_angle(self):
+        try:
+            transform = self.tf_buffer.lookup_transform(
+                "map",
+                self.current_odom.child_frame_id,
+                rospy.Time(0),
+                rospy.Duration(1.0),
+            )
+            quaternion = transform.transform.rotation
+            euler = tf.transformations.euler_from_quaternion(
+                [quaternion.x, quaternion.y, quaternion.z, quaternion.w]
+            )
+
+            return euler[2]
+        except:
+            rospy.logwarn("Failed to get current angle.")
+            return None
+
+    def normalize_angle(self, angle):
+        while angle > math.pi:
+            angle -= 2 * math.pi
+        while angle < -math.pi:
+            angle += 2 * math.pi
+
+        return angle
 
 
 def main():
