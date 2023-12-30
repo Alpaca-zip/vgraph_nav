@@ -14,6 +14,7 @@
   <arg name="vel_theta" default="0.3"/>
   <arg name="angle_tolerance" default="0.1"/>
   <arg name="goal_tolerance" default="0.05"/>
+  <arg name="verbose" default="false"/>
   <arg name="open_rviz" default="true"/>
 
   <include file="$(find vgraph_planner)/launch/include/turtlebot3_world.launch">
@@ -45,6 +46,7 @@
     <arg name="vel_theta" value="$(arg vel_theta)"/>
     <arg name="angle_tolerance" value="$(arg angle_tolerance)"/>
     <arg name="goal_tolerance" value="$(arg goal_tolerance)"/>
+    <arg name="verbose" value="$(arg verbose)"/>
   </include>
 
   <node name="map_server" pkg="map_server" type="map_server" args="$(arg map_file)"/>

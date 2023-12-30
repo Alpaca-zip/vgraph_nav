@@ -17,6 +17,7 @@
 
 import math
 import os
+import sys
 
 import mip
 import rospy
@@ -41,6 +42,7 @@ class VgraphPlannerNode:
         self.vel_theta = rospy.get_param("~vel_theta", 0.1)
         self.angle_tolerance = rospy.get_param("~angle_tolerance", 0.1)
         self.goal_tolerance = rospy.get_param("~goal_tolerance", 0.1)
+        self.verbose = rospy.get_param("~verbose", False)
         self.start_point = None
         self.end_point = None
 
@@ -251,7 +253,9 @@ class VgraphPlannerNode:
         return (pose_x, pose_y)
 
     def make_plan(self, start, goal):
-        print("\033[92m[Make Plan] Process started.\033[0m")
+        rospy.loginfo("[Make Plan] Start planning.")
+        self.animation_running = True
+        timer = rospy.Timer(rospy.Duration(0.1), self.animate_loading)
         corners = []
         corners.append(start)
         corners = self.find_black_pixel_corners(self.up_scaled_image, corners)
@@ -289,12 +293,20 @@ class VgraphPlannerNode:
             optimized_path_image_original.save(
                 self.test_folder_path + "/optimized_path_original.png"
             )
-            print(
-                f"\033[92m[Make Plan] Images saved to test folder: {self.test_folder_path}.\033[0m"
-            )
-            print("\033[92m[Make Plan] Process completed successfully.\033[0m")
+
+            self.animation_running = False
+            timer.shutdown()
+            sys.stdout.write("\r" + " " * 30 + "\r")
+            rospy.loginfo("[Make Plan] Finished planning successfully.")
 
         return shortest_path_edges
+
+    def animate_loading(self, event):
+        if self.animation_running:
+            chars = "/—\\|"
+            char = chars[int(event.current_real.to_sec() * 10) % len(chars)]
+            sys.stdout.write("\r" + "Planning... " + char)
+            sys.stdout.flush()
 
     def find_black_pixel_corners(self, image, corners):
         for y in range(1, image.height - 1):
@@ -393,6 +405,7 @@ class VgraphPlannerNode:
 
     def calculate_shortest_path(self, corners, valid_edges):
         model = mip.Model()
+        model.verbose = int(self.verbose)
         x = {(i, j): model.add_var(var_type=mip.BINARY) for i, j in valid_edges}
         start_point = corners[0]
         end_point = corners[-1]
@@ -419,8 +432,6 @@ class VgraphPlannerNode:
             if not shortest_path_edges:
                 rospy.logerr("Optimization succeeded, but no valid path was found.")
                 return None
-
-            print("\033[92m[Make Plan] Shortest path calculated.\033[0m")
 
             return shortest_path_edges
         else:
@@ -501,21 +512,22 @@ class VgraphPlannerNode:
         return rgb_image
 
     def navigate_along_path(self, edges, final_pose):
+        rospy.loginfo("[Navigate] Start navigation.")
         if edges is None or self.current_odom is None or self.scan_data is None:
             return
 
         for edge in edges:
-            print(f"\033[92m[Navigate] Moving to waypoint: {edge[1]}.\033[0m")
+            rospy.loginfo(f"[Navigate] Moving to waypoint: {edge[1]}.")
             if not self.move_to_goal(edge):
                 rospy.logwarn("Aborting navigation.")
                 return
-            print("\033[92m[Navigate] Reached waypoint.\033[0m")
+            rospy.loginfo("[Navigate] Reached waypoint.")
 
         if final_pose is not None:
             if not self.rotate_to_final_pose(final_pose):
                 rospy.logwarn("Aborting navigation.")
                 return
-            print("\033[92m[Navigate] Reached final pose.\033[0m")
+            rospy.loginfo("[Navigate] Reached final pose.")
 
     def move_to_goal(self, edge):
         current_position = self.get_current_position()
