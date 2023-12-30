@@ -5,6 +5,7 @@
   <arg name="down_scale_factor" default="0.1"/>
   <arg name="clearance" default="0.1"/>
   <arg name="odom_topic" default="/odom"/>
+  <arg name="scan_topic" default="/scan"/>
   <arg name="vel_linear" default="0.1"/>
   <arg name="vel_theta" default="0.1"/>
   <arg name="angle_tolerance" default="0.1"/>
@@ -16,6 +17,7 @@
     <param name="~down_scale_factor" value="$(arg down_scale_factor)"/>
     <param name="~clearance" value="$(arg clearance)"/>
     <param name="~odom_topic" value="$(arg odom_topic)"/>
+    <param name="~scan_topic" value="$(arg scan_topic)"/>
     <param name="~vel_linear" value="$(arg vel_linear)"/>
     <param name="~vel_theta" value="$(arg vel_theta)"/>
     <param name="~angle_tolerance" value="$(arg angle_tolerance)"/>

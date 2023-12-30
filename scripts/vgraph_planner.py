@@ -26,6 +26,7 @@ import yaml
 from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped, Twist
 from nav_msgs.msg import OccupancyGrid, Odometry, Path
 from PIL import Image, ImageDraw
+from sensor_msgs.msg import LaserScan
 
 
 class VgraphPlannerNode:
@@ -35,6 +36,7 @@ class VgraphPlannerNode:
         self.down_scale_factor = rospy.get_param("~down_scale_factor", 0.1)
         self.clearance = rospy.get_param("~clearance", 0.1)
         self.odom_topic = rospy.get_param("~odom_topic", "/odom")
+        self.scan_topic = rospy.get_param("~scan_topic", "/scan")
         self.vel_linear = rospy.get_param("~vel_linear", 0.1)
         self.vel_theta = rospy.get_param("~vel_theta", 0.1)
         self.angle_tolerance = rospy.get_param("~angle_tolerance", 0.1)
@@ -50,6 +52,7 @@ class VgraphPlannerNode:
         )
         rospy.Subscriber("/move_base_simple/goal", PoseStamped, self.goal_callback)
         rospy.Subscriber(self.odom_topic, Odometry, self.odom_callback)
+        rospy.Subscriber(self.scan_topic, LaserScan, self.scan_callback)
 
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
@@ -222,6 +225,10 @@ class VgraphPlannerNode:
 
     def odom_callback(self, msg):
         self.current_odom = msg
+
+    def scan_callback(self, msg):
+        self.scan_data = msg.ranges
+        self.range_min = msg.range_min
 
     def pose_to_pixel(self, pose):
         origin_x = self.origin[0]
@@ -494,7 +501,7 @@ class VgraphPlannerNode:
         return rgb_image
 
     def navigate_along_path(self, edges, final_pose):
-        if edges is None or self.current_odom is None:
+        if edges is None or self.current_odom is None or self.scan_data is None:
             return
 
         for edge in edges:
@@ -532,6 +539,11 @@ class VgraphPlannerNode:
                 + (end_position[1] - current_position[1]) ** 2
             )
 
+            if self.check_obstacle():
+                rospy.logwarn_throttle(3.0, "Obstacle detected. Stopping the robot.")
+                self.send_stop()
+                continue
+
             cmd_vel_msg = Twist()
             cmd_vel_msg.linear.x = self.vel_linear
             self.cmd_vel_pub.publish(cmd_vel_msg)
@@ -564,6 +576,11 @@ class VgraphPlannerNode:
             diff_angle = self.normalize_angle(goal_angle - current_angle)
             rotation_time = abs(diff_angle) / current_speed
             rotation_direction = 1 if diff_angle > 0 else -1
+
+            if self.check_obstacle():
+                rospy.logwarn_throttle(3.0, "Obstacle detected. Stopping the robot.")
+                self.send_stop()
+                continue
 
             cmd_vel_msg = Twist()
             cmd_vel_msg.angular.z = rotation_direction * current_speed
@@ -629,11 +646,24 @@ class VgraphPlannerNode:
                 break
             elif rospy.get_time() - start_time > 10:
                 rospy.logwarn_throttle(
-                    1.0,
-                    "It took more than 10 seconds to stop. Check if the odometry is working properly.",
+                    3.0,
+                    "It took more than 10 seconds to stop. Please check if the odometry is working properly.",
                 )
 
             rospy.sleep(0.1)
+
+    def check_obstacle(self):
+        if self.clearance < self.range_min:
+            rospy.logwarn(
+                "Clearance is smaller than range_min. Please check the parameters."
+            )
+            return False
+
+        for distance in self.scan_data:
+            if self.range_min < distance < self.clearance:
+                return True
+
+        return False
 
     def get_current_position(self):
         try:

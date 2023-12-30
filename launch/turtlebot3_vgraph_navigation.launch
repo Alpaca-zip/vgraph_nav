@@ -4,12 +4,12 @@
   <arg name="x_pos" default="-2.0"/>
   <arg name="y_pos" default="0.0"/>
   <arg name="yaw_pos" default="0.0"/>
-  <arg name="scan_topic" default="/scan"/>
   <arg name="map_file" default="$(find vgraph_planner)/maps/map.yaml"/>
   <arg name="test_folder" default="$(find vgraph_planner)/test"/>
   <arg name="down_scale_factor" default="0.3"/>
   <arg name="clearance" default="0.15"/>
   <arg name="odom_topic" default="/odom"/>
+  <arg name="scan_topic" default="/scan"/>
   <arg name="vel_linear" default="0.1"/>
   <arg name="vel_theta" default="0.3"/>
   <arg name="angle_tolerance" default="0.1"/>
@@ -40,6 +40,7 @@
     <arg name="down_scale_factor" value="$(arg down_scale_factor)"/>
     <arg name="clearance" value="$(arg clearance)"/>
     <arg name="odom_topic" value="$(arg odom_topic)"/>
+    <arg name="scan_topic" value="$(arg scan_topic)"/>
     <arg name="vel_linear" value="$(arg vel_linear)"/>
     <arg name="vel_theta" value="$(arg vel_theta)"/>
     <arg name="angle_tolerance" value="$(arg angle_tolerance)"/>
