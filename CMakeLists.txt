@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.0.2)
-project(vgraph_planner)
+project(vgraph_nav)
 
 set(CMAKE_CXX_STANDARD 14)
 
