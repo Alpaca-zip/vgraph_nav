@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.0.2)
-project(vgraph_planner)
+project(vgraph_nav)
 
 set(CMAKE_CXX_STANDARD 14)
 
@@ -8,6 +8,9 @@ find_package(catkin REQUIRED COMPONENTS
   geometry_msgs
   nav_msgs
   rospy
+  sensor_msgs
+  tf
+  tf2_ros
 )
 
 # Declare a catkin package
@@ -15,6 +18,9 @@ catkin_package(CATKIN_DEPENDS
   geometry_msgs
   nav_msgs
   rospy
+  sensor_msgs
+  tf
+  tf2_ros
 )
 
 # Install Python executables

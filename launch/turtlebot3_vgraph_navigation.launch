@@ -4,14 +4,20 @@
   <arg name="x_pos" default="-2.0"/>
   <arg name="y_pos" default="0.0"/>
   <arg name="yaw_pos" default="0.0"/>
-  <arg name="scan_topic" default="/scan"/>
-  <arg name="map_file" default="$(find vgraph_planner)/maps/map.yaml"/>
-  <arg name="test_folder" default="$(find vgraph_planner)/test"/>
+  <arg name="map_file" default="$(find vgraph_nav)/maps/map.yaml"/>
+  <arg name="test_folder" default="$(find vgraph_nav)/test"/>
   <arg name="down_scale_factor" default="0.3"/>
-  <arg name="clearance" default="0.1"/>
+  <arg name="clearance" default="0.15"/>
+  <arg name="odom_topic" default="/odom"/>
+  <arg name="scan_topic" default="/scan"/>
+  <arg name="vel_linear" default="0.1"/>
+  <arg name="vel_theta" default="0.3"/>
+  <arg name="angle_tolerance" default="0.1"/>
+  <arg name="goal_tolerance" default="0.05"/>
+  <arg name="verbose" default="false"/>
   <arg name="open_rviz" default="true"/>
 
-  <include file="$(find vgraph_planner)/launch/include/turtlebot3_world.launch">
+  <include file="$(find vgraph_nav)/launch/include/turtlebot3_world.launch">
     <arg name="model" value="$(arg model)"/>
     <arg name="x_pos" value="$(arg x_pos)"/>
     <arg name="y_pos" value="$(arg y_pos)"/>
@@ -22,21 +28,28 @@
     <arg name="model" value="$(arg model)" />
   </include>
 
-  <include file="$(find vgraph_planner)/launch/include/turtlebot3_amcl.launch">
+  <include file="$(find vgraph_nav)/launch/include/turtlebot3_amcl.launch">
     <arg name="scan_topic" value="$(arg scan_topic)"/>
     <arg name="initial_x_pos" value="$(arg x_pos)"/>
     <arg name="initial_y_pos" value="$(arg y_pos)"/>
     <arg name="initial_yaw_pos" value="$(arg yaw_pos)"/>
   </include>
 
-  <include file="$(find vgraph_planner)/launch/include/vgraph_planner.launch">
+  <include file="$(find vgraph_nav)/launch/include/vgraph_planner.launch">
     <arg name="map_file" value="$(arg map_file)"/>
     <arg name="test_folder" value="$(arg test_folder)"/>
     <arg name="down_scale_factor" value="$(arg down_scale_factor)"/>
     <arg name="clearance" value="$(arg clearance)"/>
+    <arg name="odom_topic" value="$(arg odom_topic)"/>
+    <arg name="scan_topic" value="$(arg scan_topic)"/>
+    <arg name="vel_linear" value="$(arg vel_linear)"/>
+    <arg name="vel_theta" value="$(arg vel_theta)"/>
+    <arg name="angle_tolerance" value="$(arg angle_tolerance)"/>
+    <arg name="goal_tolerance" value="$(arg goal_tolerance)"/>
+    <arg name="verbose" value="$(arg verbose)"/>
   </include>
 
   <node name="map_server" pkg="map_server" type="map_server" args="$(arg map_file)"/>
 
-  <node if="$(arg open_rviz)" name="rviz" pkg="rviz" type="rviz" required="true" args="-d $(find vgraph_planner)/rviz/turtlebot3_navigation.rviz"/>
+  <node if="$(arg open_rviz)" name="rviz" pkg="rviz" type="rviz" required="true" args="-d $(find vgraph_nav)/rviz/turtlebot3_navigation.rviz"/>
 </launch>
