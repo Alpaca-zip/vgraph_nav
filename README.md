@@ -37,7 +37,7 @@ More info : [e-Manual](https://emanual.robotis.com/docs/en/platform/turtlebot3/n
 - `~map_file`: Path to the configuration file (yaml) for the occupancy grid map.
 - `~test_folder`: A debug folder primarily used for debugging the Visibility Graph algorithm.
 - `~down_scale_factor`: A factor for downscaling the occupancy grid map. Please reduce this value if optimization is taking too long.
-- `~clearance`: The required clearance for the robot to navigate. It has to be at least half the maximum width of the robot. This is also used for obstacle detection.
+- `~robot_radius`: Specifies the radius of the robot. This is mainly used for obstacle detection.
 - `~odom_topic`: The name of the odometry topic.
 - `~scan_topic`: The name of the LaserScan topic.
 - `~vel_linear`: Linear velocity.

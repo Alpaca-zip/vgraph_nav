@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-# Copyright (C) 2023  Alapaca-zip
+# Copyright (C) 2023-2024  Alapaca-zip
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -35,7 +35,7 @@ class VgraphPlannerNode:
         self.map_file_path = rospy.get_param("~map_file", "map.yaml")
         self.test_folder_path = rospy.get_param("~test_folder", "test")
         self.down_scale_factor = rospy.get_param("~down_scale_factor", 0.1)
-        self.clearance = rospy.get_param("~clearance", 0.1)
+        self.robot_radius = rospy.get_param("~robot_radius", 0.1)
         self.odom_topic = rospy.get_param("~odom_topic", "/odom")
         self.scan_topic = rospy.get_param("~scan_topic", "/scan")
         self.vel_linear = rospy.get_param("~vel_linear", 0.1)
@@ -98,7 +98,7 @@ class VgraphPlannerNode:
         black_pixels = self.find_black_pixels(image)
 
         enlarged_image, black_pixels = self.enlarge_black_pixels(
-            image, black_pixels, self.clearance
+            image, black_pixels, self.robot_radius
         )
 
         down_scaled_image = enlarged_image.resize(
@@ -665,14 +665,14 @@ class VgraphPlannerNode:
             rospy.sleep(0.1)
 
     def check_obstacle(self):
-        if self.clearance < self.range_min:
+        if self.robot_radius < self.range_min:
             rospy.logwarn(
-                "Clearance is smaller than range_min. Please check the parameters."
+                "robot_radius is smaller than range_min. Please check the parameters."
             )
             return False
 
         for distance in self.scan_data:
-            if self.range_min < distance < self.clearance:
+            if self.range_min < distance < self.robot_radius:
                 return True
 
         return False

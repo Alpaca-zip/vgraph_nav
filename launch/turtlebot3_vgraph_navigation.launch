@@ -7,7 +7,7 @@
   <arg name="map_file" default="$(find vgraph_nav)/maps/map.yaml"/>
   <arg name="test_folder" default="$(find vgraph_nav)/test"/>
   <arg name="down_scale_factor" default="0.3"/>
-  <arg name="clearance" default="0.15"/>
+  <arg name="robot_radius" default="0.15"/>
   <arg name="odom_topic" default="/odom"/>
   <arg name="scan_topic" default="/scan"/>
   <arg name="vel_linear" default="0.1"/>
@@ -39,7 +39,7 @@
     <arg name="map_file" value="$(arg map_file)"/>
     <arg name="test_folder" value="$(arg test_folder)"/>
     <arg name="down_scale_factor" value="$(arg down_scale_factor)"/>
-    <arg name="clearance" value="$(arg clearance)"/>
+    <arg name="robot_radius" value="$(arg robot_radius)"/>
     <arg name="odom_topic" value="$(arg odom_topic)"/>
     <arg name="scan_topic" value="$(arg scan_topic)"/>
     <arg name="vel_linear" value="$(arg vel_linear)"/>
