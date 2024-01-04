@@ -19,7 +19,9 @@ import math
 import os
 import sys
 
+import cv2
 import mip
+import numpy
 import rospy
 import tf
 import tf2_ros
@@ -34,7 +36,7 @@ class VgraphPlannerNode:
     def __init__(self):
         self.map_file_path = rospy.get_param("~map_file", "map.yaml")
         self.test_folder_path = rospy.get_param("~test_folder", "test")
-        self.down_scale_factor = rospy.get_param("~down_scale_factor", 0.1)
+        self.epsilon_factor = rospy.get_param("~epsilon_factor", 0.05)
         self.robot_radius = rospy.get_param("~robot_radius", 0.1)
         self.odom_topic = rospy.get_param("~odom_topic", "/odom")
         self.scan_topic = rospy.get_param("~scan_topic", "/scan")
@@ -62,14 +64,11 @@ class VgraphPlannerNode:
         self.original_image, self.resolution, self.origin = self.load_map_file(
             self.map_file_path
         )
-
-        (
-            self.enlarged_image,
-            self.down_scaled_image,
-            self.up_scaled_image,
-        ) = self.change_image_resolution(self.original_image, self.down_scale_factor)
-
-        self.publish_initial_cost_map()
+        black_pixels = self.find_black_pixels(self.original_image)
+        self.enlarged_image, _ = self.enlarge_black_pixels(
+            self.original_image, black_pixels, self.robot_radius
+        )
+        self.publish_initial_cost_map(self.enlarged_image)
 
     def __del__(self):
         pass
@@ -91,27 +90,6 @@ class VgraphPlannerNode:
         origin = map_yaml.get("origin", None)
 
         return image, resolution, origin
-
-    def change_image_resolution(self, image, factor):
-        width = int(image.width * factor)
-        height = int(image.height * factor)
-        black_pixels = self.find_black_pixels(image)
-
-        enlarged_image, black_pixels = self.enlarge_black_pixels(
-            image, black_pixels, self.robot_radius
-        )
-
-        down_scaled_image = enlarged_image.resize(
-            (width, height), Image.Resampling.NEAREST
-        )
-
-        down_scaled_image = self.apply_black_pixels(
-            down_scaled_image, black_pixels, factor
-        )
-
-        up_scaled_image = down_scaled_image.resize(image.size, Image.Resampling.NEAREST)
-
-        return enlarged_image, down_scaled_image, up_scaled_image
 
     def find_black_pixels(self, image):
         black_pixels = []
@@ -143,27 +121,15 @@ class VgraphPlannerNode:
 
         return new_image, new_black_pixels
 
-    def apply_black_pixels(self, image, black_pixels, scale):
-        for x, y in black_pixels:
-            scaled_x = int(x * scale)
-            scaled_y = int(y * scale)
-            if 0 <= scaled_x < image.width and 0 <= scaled_y < image.height:
-                image.putpixel((scaled_x, scaled_y), 0)
-
-        return image
-
-    def publish_initial_cost_map(self):
+    def publish_initial_cost_map(self, image):
         while True:
-            if (
-                self.up_scaled_image is not None
-                and self.costmap_pub.get_num_connections() > 0
-            ):
-                self.publish_cost_map(self.up_scaled_image)
+            if image is not None and self.costmap_pub.get_num_connections() > 0:
+                self.publish_cost_map(image)
                 break
             rospy.sleep(5.0)
 
-    def publish_cost_map(self, original_image, edges=None):
-        rgb_image = original_image.convert("RGB")
+    def publish_cost_map(self, image, edges=None):
+        rgb_image = image.convert("RGB")
         draw = ImageDraw.Draw(rgb_image)
 
         if edges is not None:
@@ -183,7 +149,7 @@ class VgraphPlannerNode:
 
         for y in reversed(range(rgb_image.height)):
             for x in range(rgb_image.width):
-                original_pixel = original_image.getpixel((x, y))
+                original_pixel = image.getpixel((x, y))
                 rgb_pixel = rgb_image.getpixel((x, y))
                 if original_pixel == 0 and rgb_pixel == (128, 128, 128):
                     cost_map_msg.data.append(50)
@@ -211,7 +177,7 @@ class VgraphPlannerNode:
                     "Cannot set initial pose automatically. Please set initial pose manually."
                 )
                 return
-        elif self.up_scaled_image is None:
+        elif self.enlarged_image is None:
             rospy.logwarn("Map is not loaded. Please wait for the map to be loaded.")
             return
 
@@ -229,8 +195,14 @@ class VgraphPlannerNode:
         self.current_odom = msg
 
     def scan_callback(self, msg):
-        self.scan_data = msg.ranges
+        self.scan_data = []
         self.range_min = msg.range_min
+
+        for angle in range(0, 31):
+            self.scan_data.append(msg.ranges[angle])
+
+        for angle in range(330, 360):
+            self.scan_data.append(msg.ranges[angle])
 
     def pose_to_pixel(self, pose):
         origin_x = self.origin[0]
@@ -258,10 +230,10 @@ class VgraphPlannerNode:
         timer = rospy.Timer(rospy.Duration(0.1), self.animate_loading)
         corners = []
         corners.append(start)
-        corners = self.find_black_pixel_corners(self.up_scaled_image, corners)
+        corners = self.find_corners(self.enlarged_image, corners)
         corners.append(goal)
 
-        valid_edges = self.get_valid_edges(self.up_scaled_image, corners)
+        valid_edges = self.get_valid_edges(self.enlarged_image, corners)
 
         shortest_path_edges = self.calculate_shortest_path(corners, valid_edges)
 
@@ -270,13 +242,13 @@ class VgraphPlannerNode:
 
             self.publish_path(shortest_path_edges)
 
-            self.publish_cost_map(self.up_scaled_image, shortest_path_edges)
+            self.publish_cost_map(self.enlarged_image, shortest_path_edges)
 
             path_graph_image = self.draw_path_with_markers(
-                self.up_scaled_image, valid_edges
+                self.enlarged_image, valid_edges
             )
-            optimized_path_image_upscaled = self.draw_path_with_markers(
-                self.up_scaled_image, shortest_path_edges
+            optimized_path_image_enlarged = self.draw_path_with_markers(
+                self.enlarged_image, shortest_path_edges
             )
             optimized_path_image_original = self.draw_path_with_markers(
                 self.original_image, shortest_path_edges
@@ -284,11 +256,9 @@ class VgraphPlannerNode:
 
             self.original_image.save(self.test_folder_path + "/original.png")
             self.enlarged_image.save(self.test_folder_path + "/enlarged.png")
-            self.down_scaled_image.save(self.test_folder_path + "/down_scaled.png")
-            self.up_scaled_image.save(self.test_folder_path + "/up_scaled.png")
             path_graph_image.save(self.test_folder_path + "/path_graph.png")
-            optimized_path_image_upscaled.save(
-                self.test_folder_path + "/optimized_path_upscaled.png"
+            optimized_path_image_enlarged.save(
+                self.test_folder_path + "/optimized_path_enlarged.png"
             )
             optimized_path_image_original.save(
                 self.test_folder_path + "/optimized_path_original.png"
@@ -308,18 +278,17 @@ class VgraphPlannerNode:
             sys.stdout.write("\r" + "Planning... " + char)
             sys.stdout.flush()
 
-    def find_black_pixel_corners(self, image, corners):
-        for y in range(1, image.height - 1):
-            for x in range(1, image.width - 1):
-                if image.getpixel((x, y)) == 0:
-                    black_neighbors = sum(
-                        image.getpixel((j, i)) == 0
-                        for i in range(y - 1, y + 2)
-                        for j in range(x - 1, x + 2)
-                        if (i, j) != (y, x)
-                    )
-                    if black_neighbors == 3:
-                        corners.append((x, y))
+    def find_corners(self, image, corners):
+        numpy_image = numpy.array(image)
+        _, binary = cv2.threshold(numpy_image, 1, 255, cv2.THRESH_BINARY_INV)
+        contours, _ = cv2.findContours(binary, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+
+        for contour in contours:
+            epsilon = self.epsilon_factor * cv2.arcLength(contour, True)
+            approx = cv2.approxPolyDP(contour, epsilon, True)
+            for point in approx:
+                corner = tuple(point[0])
+                corners.append(corner)
 
         return corners
 
