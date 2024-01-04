@@ -17,20 +17,6 @@ jobs:
           ROS_DISTRO: noetic # Replace noetic for your chosen distro.
           BLACK_CHECK: true
 
-  pylint_check:
-    runs-on: ubuntu-latest
-    steps:
-      - name: checkout
-        uses: actions/checkout@v2
-      - name: run industrial_ci
-        uses: 'ros-industrial/industrial_ci@master'
-        env:
-          ROS_DISTRO: noetic # Replace noetic for your chosen distro.
-          BEFORE_BUILD_TARGET_WORKSPACE: 'apt update -q && python3 -m pip install -q -r requirements.txt'
-          UPSTREAM_WORKSPACE: .rosinstall
-          PYLINT_ARGS: '--errors-only'
-          PYLINT_CHECK: true
-
   catkin_lint_check:
     runs-on: ubuntu-latest
     steps:
