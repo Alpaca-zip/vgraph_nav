@@ -195,8 +195,14 @@ class VgraphPlannerNode:
         self.current_odom = msg
 
     def scan_callback(self, msg):
-        self.scan_data = msg.ranges
+        self.scan_data = []
         self.range_min = msg.range_min
+
+        for angle in range(0, 31):
+            self.scan_data.append(msg.ranges[angle])
+
+        for angle in range(330, 360):
+            self.scan_data.append(msg.ranges[angle])
 
     def pose_to_pixel(self, pose):
         origin_x = self.origin[0]
