@@ -245,13 +245,13 @@ class VgraphPlannerNode:
             self.publish_cost_map(self.enlarged_image, shortest_path_edges)
 
             path_graph_image = self.draw_path_with_markers(
-                self.enlarged_image, valid_edges
+                self.enlarged_image, corners, valid_edges
             )
             optimized_path_image_enlarged = self.draw_path_with_markers(
-                self.enlarged_image, shortest_path_edges
+                self.enlarged_image, corners, shortest_path_edges
             )
             optimized_path_image_original = self.draw_path_with_markers(
-                self.original_image, shortest_path_edges
+                self.original_image, corners, shortest_path_edges
             )
 
             self.original_image.save(self.test_folder_path + "/original.png")
@@ -449,15 +449,15 @@ class VgraphPlannerNode:
 
         self.path_pub.publish(path_msg)
 
-    def draw_path_with_markers(self, image, aligned_edges):
+    def draw_path_with_markers(self, image, corners, aligned_edges):
         rgb_image = image.convert("RGB")
         draw = ImageDraw.Draw(rgb_image)
 
         for start, end in aligned_edges:
             draw.line([start, end], fill=(255, 0, 0), width=1)
 
-        start_point = aligned_edges[0][0]
-        end_point = aligned_edges[-1][1]
+        start_point = corners[0]
+        end_point = corners[-1]
         radius = 5
         draw.ellipse(
             (
