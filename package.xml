@@ -3,7 +3,7 @@
   <name>vgraph_nav</name>
   <version>0.0.0</version>
   <description>The vgraph_nav package</description>
-  <maintainer email="zip@todo.todo">Alpaca-zip</maintainer>
+  <maintainer email="alpaca.zip@gmail.com">Kimihiro Mori</maintainer>
   <license>Apache 2.0</license>
   <buildtool_depend>catkin</buildtool_depend>
   <depend>geometry_msgs</depend>
